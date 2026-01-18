@@ -68,7 +68,19 @@ extension Clock {
             set { state.withLock { $0.minimumResolution = newValue } }
         }
 
-        public func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
+        /// Sleeps until the specified deadline (executes immediately).
+        ///
+        /// - Parameters:
+        ///   - deadline: The instant until which to sleep.
+        ///   - tolerance: The allowed tolerance for the sleep duration.
+        ///   - isolation: The actor isolation context for the operation.
+        public func sleep(
+            until deadline: Instant,
+            tolerance: Duration? = nil,
+            #if !hasFeature(Embedded)
+            isolation: isolated (any Actor)? = #isolation
+            #endif
+        ) async throws {
             try Task.checkCancellation()
             state.withLock { $0.now = deadline }
             // Yield to allow cooperative scheduling fairness, not to simulate time passing

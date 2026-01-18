@@ -51,7 +51,19 @@ extension Clock {
 
         public init() {}
 
-        public func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
+        /// Sleeps until the specified deadline (triggers precondition failure).
+        ///
+        /// - Parameters:
+        ///   - deadline: The instant until which to sleep.
+        ///   - tolerance: The allowed tolerance for the sleep duration.
+        ///   - isolation: The actor isolation context for the operation.
+        public func sleep(
+            until deadline: Instant,
+            tolerance: Duration? = nil,
+            #if !hasFeature(Embedded)
+            isolation: isolated (any Actor)? = #isolation
+            #endif
+        ) async throws {
             preconditionFailure(
                 """
                 Unimplemented clock sleep was invoked. This indicates a code path \

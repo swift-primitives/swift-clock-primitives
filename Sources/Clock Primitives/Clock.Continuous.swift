@@ -28,7 +28,10 @@ extension Clock {
     /// // ... perform work (system may sleep) ...
     /// let elapsed: Duration = clock.now - start
     /// ```
-    public struct Continuous: _Concurrency.Clock, Sendable {
+    ///
+    /// - Note: `_Concurrency.Clock` conformance is added via extension in
+    ///   swift-iso-9945 (POSIX) or swift-windows-primitives (Windows).
+    public struct Continuous: Sendable {
         public typealias Duration = Swift.Duration
 
         /// The instant type for continuous clock measurements.
@@ -61,17 +64,10 @@ extension Clock {
         /// Creates a continuous clock instance.
         public init() {}
 
-        /// The current instant according to the continuous clock.
-        public var now: Instant {
-            Instant(nanoseconds: Kernel.Clock.Continuous.now())
-        }
+        // Note: `now` property is provided via extension in swift-iso-9945 (POSIX)
+        // or swift-windows-primitives (Windows)
 
-        public func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
-            let target = deadline.nanoseconds
-            while Kernel.Clock.Continuous.now() < target {
-                try Task.checkCancellation()
-                try await Task.sleep(for: .nanoseconds(1_000_000)) // 1ms granularity
-            }
-        }
+        // Note: `sleep(until:tolerance:)` is provided via extension in swift-iso-9945 (POSIX)
+        // or swift-windows-primitives (Windows)
     }
 }

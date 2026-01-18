@@ -71,7 +71,19 @@ extension Clock {
             }
         }
 
-        public func sleep(until deadline: Instant, tolerance: D? = nil) async throws {
+        /// Sleeps until the specified deadline.
+        ///
+        /// - Parameters:
+        ///   - deadline: The instant until which to sleep.
+        ///   - tolerance: The allowed tolerance for the sleep duration.
+        ///   - isolation: The actor isolation context for the operation.
+        public func sleep(
+            until deadline: Instant,
+            tolerance: D? = nil,
+            #if !hasFeature(Embedded)
+            isolation: isolated (any Actor)? = #isolation
+            #endif
+        ) async throws {
             try await _sleep(deadline, tolerance)
         }
     }

@@ -145,13 +145,31 @@ extension Clock {
         /// This method is `async` because it cooperatively yields to allow suspended
         /// tasks to observe time changes and resume. The actual state mutation is
         /// synchronous; the async nature enables structured interleaving with sleepers.
-        public func advance(by duration: Duration = .zero) async {
+        ///
+        /// - Parameters:
+        ///   - duration: The duration to advance by.
+        ///   - isolation: The actor isolation context for the operation.
+        public func advance(
+            by duration: Duration = .zero,
+            #if !hasFeature(Embedded)
+            isolation: isolated (any Actor)? = #isolation
+            #endif
+        ) async {
             let target = state.withLock { $0.now.advanced(by: duration) }
             await advance(to: target)
         }
 
         /// Advances the test clock's internal time to the deadline.
-        public func advance(to deadline: Instant) async {
+        ///
+        /// - Parameters:
+        ///   - deadline: The instant to advance to.
+        ///   - isolation: The actor isolation context for the operation.
+        public func advance(
+            to deadline: Instant,
+            #if !hasFeature(Embedded)
+            isolation: isolated (any Actor)? = #isolation
+            #endif
+        ) async {
             while true {
                 await Task.yield()
 
@@ -204,12 +222,19 @@ extension Clock {
         /// This method advances the clock through all scheduled sleep deadlines
         /// in order, allowing each suspended task to resume naturally.
         ///
-        /// - Parameter timeout: Maximum wall-clock time to wait for sleeps to complete.
-        ///   If the timeout expires before all sleeps are processed, remaining sleeps
-        ///   are force-finished (their continuations complete without error, but without
-        ///   the clock advancing to their deadlines). This prevents test hangs but may
-        ///   cause sleepers to observe unexpected timing.
-        public func run(timeout duration: Swift.Duration = .milliseconds(500)) async {
+        /// - Parameters:
+        ///   - duration: Maximum wall-clock time to wait for sleeps to complete.
+        ///     If the timeout expires before all sleeps are processed, remaining sleeps
+        ///     are force-finished (their continuations complete without error, but without
+        ///     the clock advancing to their deadlines). This prevents test hangs but may
+        ///     cause sleepers to observe unexpected timing.
+        ///   - isolation: The actor isolation context for the operation.
+        public func run(
+            timeout duration: Swift.Duration = .milliseconds(500),
+            #if !hasFeature(Embedded)
+            isolation: isolated (any Actor)? = #isolation
+            #endif
+        ) async {
             await Task.yield()
 
             let startTime = ContinuousClock.now
@@ -243,6 +268,19 @@ extension Clock {
         }
 
         /// Throws an error if there are active sleeps on the clock.
+        ///
+        /// - Parameter isolation: The actor isolation context for the operation.
+        #if !hasFeature(Embedded)
+        public func checkSuspension(
+            isolation: isolated (any Actor)? = #isolation
+        ) async throws(Suspension.Error) {
+            await Task.yield()
+            let hasActive = state.withLock { !$0.suspensions.isEmpty }
+            guard !hasActive else {
+                throw Suspension.Error()
+            }
+        }
+        #else
         public func checkSuspension() async throws(Suspension.Error) {
             await Task.yield()
             let hasActive = state.withLock { !$0.suspensions.isEmpty }
@@ -250,6 +288,7 @@ extension Clock {
                 throw Suspension.Error()
             }
         }
+        #endif
     }
 }
 
