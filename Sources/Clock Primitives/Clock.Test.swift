@@ -151,9 +151,7 @@ extension Clock {
         ///   - isolation: The actor isolation context for the operation.
         public func advance(
             by duration: Duration = .zero,
-            #if !hasFeature(Embedded)
             isolation: isolated (any Actor)? = #isolation
-            #endif
         ) async {
             let target = state.withLock { $0.now.advanced(by: duration) }
             await advance(to: target)
@@ -166,9 +164,7 @@ extension Clock {
         ///   - isolation: The actor isolation context for the operation.
         public func advance(
             to deadline: Instant,
-            #if !hasFeature(Embedded)
             isolation: isolated (any Actor)? = #isolation
-            #endif
         ) async {
             while true {
                 await Task.yield()
@@ -231,9 +227,7 @@ extension Clock {
         ///   - isolation: The actor isolation context for the operation.
         public func run(
             timeout duration: Swift.Duration = .milliseconds(500),
-            #if !hasFeature(Embedded)
             isolation: isolated (any Actor)? = #isolation
-            #endif
         ) async {
             await Task.yield()
 
@@ -270,7 +264,6 @@ extension Clock {
         /// Throws an error if there are active sleeps on the clock.
         ///
         /// - Parameter isolation: The actor isolation context for the operation.
-        #if !hasFeature(Embedded)
         public func checkSuspension(
             isolation: isolated (any Actor)? = #isolation
         ) async throws(Suspension.Error) {
@@ -280,15 +273,6 @@ extension Clock {
                 throw Suspension.Error()
             }
         }
-        #else
-        public func checkSuspension() async throws(Suspension.Error) {
-            await Task.yield()
-            let hasActive = state.withLock { !$0.suspensions.isEmpty }
-            guard !hasActive else {
-                throw Suspension.Error()
-            }
-        }
-        #endif
     }
 }
 
