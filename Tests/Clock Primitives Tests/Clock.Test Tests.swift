@@ -42,24 +42,24 @@ extension Clock.Test.Test.Unit {
     }
 
     @Test
-    func `advance by duration updates now`() async {
+    func `advance by duration updates now`() {
         let clock = Clock.Test()
-        await clock.advance(by: .seconds(5))
+        clock.advance(by: .seconds(5))
         #expect(clock.now.offset == .seconds(5))
     }
 
     @Test
-    func `advance to deadline updates now`() async {
+    func `advance to deadline updates now`() {
         let clock = Clock.Test()
         let target = Clock.Test.Instant(offset: .seconds(10))
-        await clock.advance(to: target)
+        clock.advance(to: target)
         #expect(clock.now == target)
     }
 
     @Test
     func `sleep returns immediately when deadline already passed`() async throws {
         let clock = Clock.Test()
-        await clock.advance(by: .seconds(5))
+        clock.advance(by: .seconds(5))
         try await clock.sleep(until: .init(offset: .seconds(1)))
     }
 
@@ -104,9 +104,9 @@ extension Clock.Test.Test.Unit {
 
 extension Clock.Test.Test.EdgeCase {
     @Test
-    func `advance by zero`() async {
+    func `advance by zero`() {
         let clock = Clock.Test()
-        await clock.advance(by: .zero)
+        clock.advance(by: .zero)
         #expect(clock.now.offset == .zero)
     }
 
@@ -130,21 +130,21 @@ extension Clock.Test.Test.EdgeCase {
     }
 
     @Test
-    func `checkSuspension succeeds when no suspensions`() async throws {
+    func `checkSuspension succeeds when no suspensions`() throws {
         let clock = Clock.Test()
-        try await clock.checkSuspension()
+        try clock.checkSuspension()
     }
 
     @Test
     func `sleep cancellation removes suspension`() async {
         let clock = Clock.Test()
-        let task = Task {
+        let task = Task.immediate {
             try await clock.sleep(until: .init(offset: .seconds(100)))
         }
         task.cancel()
-        _ = await task.result
-
-        try? await clock.checkSuspension()
+        clock.run()
+        let result = await task.result
+        #expect(throws: CancellationError.self) { try result.get() }
     }
 }
 
@@ -156,16 +156,14 @@ extension Clock.Test.Test.Integration {
         let clock = Clock.Test()
         let resumed = OSAllocatedUnfairLock(initialState: false)
 
-        let task = Task {
+        let task = Task.immediate {
             try await clock.sleep(until: .init(offset: .seconds(5)))
             resumed.withLock { $0 = true }
         }
 
-        await Task.yield()
-        await Task.yield()
         #expect(!resumed.withLock { $0 })
 
-        await clock.advance(by: .seconds(5))
+        clock.advance(by: .seconds(5))
         try await task.value
         #expect(resumed.withLock { $0 })
     }
@@ -175,20 +173,17 @@ extension Clock.Test.Test.Integration {
         let clock = Clock.Test()
         let order = OSAllocatedUnfairLock(initialState: [Int]())
 
-        let task1 = Task {
+        let task1 = Task.immediate {
             try await clock.sleep(until: .init(offset: .seconds(2)))
             order.withLock { $0.append(1) }
         }
 
-        let task2 = Task {
+        let task2 = Task.immediate {
             try await clock.sleep(until: .init(offset: .seconds(4)))
             order.withLock { $0.append(2) }
         }
 
-        await Task.yield()
-        await Task.yield()
-
-        await clock.advance(by: .seconds(5))
+        clock.advance(by: .seconds(5))
         try await task1.value
         try await task2.value
         #expect(order.withLock { $0 } == [1, 2])
@@ -199,15 +194,12 @@ extension Clock.Test.Test.Integration {
         let clock = Clock.Test()
         let completed = OSAllocatedUnfairLock(initialState: false)
 
-        let task = Task {
+        let task = Task.immediate {
             try await clock.sleep(until: .init(offset: .seconds(10)))
             completed.withLock { $0 = true }
         }
 
-        await Task.yield()
-        await Task.yield()
-
-        await clock.run()
+        clock.run()
         try await task.value
         #expect(completed.withLock { $0 })
     }
@@ -216,29 +208,24 @@ extension Clock.Test.Test.Integration {
     func `checkSuspension throws when there are active suspensions`() async {
         let clock = Clock.Test()
 
-        let task = Task {
+        let task = Task.immediate {
             try await clock.sleep(until: .init(offset: .seconds(100)))
         }
 
-        await Task.yield()
-        await Task.yield()
-
-        do {
-            try await clock.checkSuspension()
-            Issue.record("Expected Suspension.Error")
-        } catch {
-            // Expected
+        #expect(throws: Clock.Test.Suspension.Error.self) {
+            try clock.checkSuspension()
         }
 
         task.cancel()
+        clock.run()
         _ = await task.result
     }
 
     @Test
-    func `advance(by:) composes: two advances sum correctly`() async {
+    func `advance(by:) composes: two advances sum correctly`() {
         let clock = Clock.Test()
-        await clock.advance(by: .seconds(3))
-        await clock.advance(by: .seconds(2))
+        clock.advance(by: .seconds(3))
+        clock.advance(by: .seconds(2))
         #expect(clock.now.offset == .seconds(5))
     }
 }

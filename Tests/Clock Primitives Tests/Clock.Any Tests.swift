@@ -115,16 +115,13 @@ extension ClockAnyTests.Integration {
         let erased = Clock.Any(test)
         let resumed = OSAllocatedUnfairLock(initialState: false)
 
-        let task = Task {
+        let task = Task.immediate {
             let deadline = erased.now.advanced(by: .seconds(5))
             try await erased.sleep(until: deadline)
             resumed.withLock { $0 = true }
         }
 
-        await Task.yield()
-        await Task.yield()
-
-        await test.advance(by: .seconds(5))
+        test.advance(by: .seconds(5))
         try await task.value
         #expect(resumed.withLock { $0 })
     }
