@@ -63,11 +63,5 @@ extension Clock {
 
         /// Creates a suspending clock instance.
         public init() {}
-
-        // Note: `now` property is provided via extension in swift-iso-9945 (POSIX)
-        // or swift-windows-primitives (Windows)
-
-        // Note: `sleep(until:tolerance:)` is provided via extension in swift-iso-9945 (POSIX)
-        // or swift-windows-primitives (Windows)
     }
 }
