@@ -50,7 +50,7 @@ extension Clock {
 
         private let _now: @Sendable () -> Instant
         private let _minimumResolution: @Sendable () -> D
-        private let _sleep: @Sendable (Instant, D?) async throws -> Void
+        private let _sleep: nonisolated(nonsending) @Sendable (Instant, D?) async throws -> Void
 
         public var now: Instant { _now() }
         public var minimumResolution: D { _minimumResolution() }
@@ -76,6 +76,7 @@ extension Clock {
         /// - Parameters:
         ///   - deadline: The instant until which to sleep.
         ///   - tolerance: The allowed tolerance for the sleep duration.
+        nonisolated(nonsending)
         public func sleep(
             until deadline: Instant,
             tolerance: D? = nil

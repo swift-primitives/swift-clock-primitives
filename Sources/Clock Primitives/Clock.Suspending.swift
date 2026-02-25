@@ -46,7 +46,7 @@ extension Clock {
             public func advanced(by duration: Duration) -> Self {
                 let (seconds, attoseconds) = duration.components
                 let nanos = seconds * 1_000_000_000 + attoseconds / 1_000_000_000
-                return Instant(nanoseconds: nanoseconds &+ UInt64(nanos))
+                return Instant(nanoseconds: nanoseconds &+ UInt64(bitPattern: nanos))
             }
 
             public func duration(to other: Self) -> Duration {

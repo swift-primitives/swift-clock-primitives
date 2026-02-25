@@ -26,6 +26,12 @@ let package = Package(
             dependencies: [
                 .product(name: "Kernel Primitives", package: "swift-kernel-primitives")
             ]
+        ),
+        .testTarget(
+            name: "Clock Primitives Tests",
+            dependencies: [
+                "Clock Primitives"
+            ]
         )
     ],
     swiftLanguageModes: [.v6]

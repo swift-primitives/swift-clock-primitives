@@ -92,6 +92,7 @@ extension Clock {
             set { state.withLock { $0.minimumResolution = newValue } }
         }
 
+        nonisolated(nonsending)
         public func sleep(
             until deadline: Instant,
             tolerance: Duration? = nil

@@ -70,17 +70,20 @@ extension Clock {
 
         /// Sleeps until the specified deadline (executes immediately).
         ///
+        /// This method is `nonisolated(nonsending)` to preserve the caller's
+        /// isolation context. Because an immediate clock never truly suspends,
+        /// there is no yield point and no thread hop.
+        ///
         /// - Parameters:
         ///   - deadline: The instant until which to sleep.
         ///   - tolerance: The allowed tolerance for the sleep duration.
+        nonisolated(nonsending)
         public func sleep(
             until deadline: Instant,
             tolerance: Duration? = nil
         ) async throws {
             try Task.checkCancellation()
             state.withLock { $0.now = deadline }
-            // Yield to allow cooperative scheduling fairness, not to simulate time passing
-            await Task.yield()
         }
     }
 }

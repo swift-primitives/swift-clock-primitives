@@ -56,6 +56,7 @@ extension Clock {
         /// - Parameters:
         ///   - deadline: The instant until which to sleep.
         ///   - tolerance: The allowed tolerance for the sleep duration.
+        nonisolated(nonsending)
         public func sleep(
             until deadline: Instant,
             tolerance: Duration? = nil
