@@ -57,6 +57,14 @@ extension Clock {
             public static func < (lhs: Self, rhs: Self) -> Bool {
                 lhs.nanoseconds < rhs.nanoseconds
             }
+
+            /// Returns the duration between two instants.
+            ///
+            /// Explicit overload to prevent shadowing by unrelated `-` operators
+            /// in the module graph (e.g., Affine primitives `Ordinal.Protocol` operator).
+            public static func - (lhs: Self, rhs: Self) -> Duration {
+                rhs.duration(to: lhs)
+            }
         }
 
         public var minimumResolution: Duration { .nanoseconds(1) }
