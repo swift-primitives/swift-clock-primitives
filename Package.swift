@@ -19,12 +19,14 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../swift-identity-primitives"),
+        .package(path: "../swift-standard-library-extensions"),
     ],
     targets: [
         .target(
             name: "Clock Primitives",
             dependencies: [
                 .product(name: "Identity Primitives", package: "swift-identity-primitives"),
+                .product(name: "Standard Library Extensions", package: "swift-standard-library-extensions"),
             ]
         ),
         .testTarget(
