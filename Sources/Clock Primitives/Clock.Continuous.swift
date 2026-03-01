@@ -13,7 +13,7 @@ extension Clock {
     /// A clock that measures elapsed time, continuing to advance while the system is asleep.
     ///
     /// Equivalent to Swift stdlib's `ContinuousClock` semantics:
-    /// - **Darwin**: Uses `CLOCK_MONOTONIC`
+    /// - **Darwin**: Uses `CLOCK_MONOTONIC_RAW` (immune to NTP adjustments)
     /// - **Linux**: Uses `CLOCK_BOOTTIME`
     /// - **Windows**: Uses `QueryPerformanceCounter`
     ///
