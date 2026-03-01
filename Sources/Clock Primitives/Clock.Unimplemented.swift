@@ -26,25 +26,8 @@ extension Clock {
     /// }
     /// ```
     public struct Unimplemented: _Concurrency.Clock, Sendable {
-        public struct Instant: InstantProtocol, Sendable, Hashable {
-            public let offset: Duration
-
-            public init(offset: Duration = .zero) {
-                self.offset = offset
-            }
-
-            public func advanced(by duration: Duration) -> Self {
-                .init(offset: offset + duration)
-            }
-
-            public func duration(to other: Self) -> Duration {
-                other.offset - offset
-            }
-
-            public static func < (lhs: Self, rhs: Self) -> Bool {
-                lhs.offset < rhs.offset
-            }
-        }
+        /// The instant type for unimplemented clock.
+        public typealias Instant = Tagged<Unimplemented, Clock.Offset>
 
         public var now: Instant { .init() }
         public var minimumResolution: Duration { .zero }

@@ -35,37 +35,10 @@ extension Clock {
         public typealias Duration = Swift.Duration
 
         /// The instant type for continuous clock measurements.
-        public struct Instant: InstantProtocol, Sendable, Hashable {
-            /// Nanoseconds since boot (monotonic).
-            public let nanoseconds: UInt64
-
-            public init(nanoseconds: UInt64) {
-                self.nanoseconds = nanoseconds
-            }
-
-            public func advanced(by duration: Duration) -> Self {
-                let (seconds, attoseconds) = duration.components
-                let nanos = seconds * 1_000_000_000 + attoseconds / 1_000_000_000
-                return Instant(nanoseconds: nanoseconds &+ UInt64(bitPattern: nanos))
-            }
-
-            public func duration(to other: Self) -> Duration {
-                let diff = Int64(bitPattern: other.nanoseconds &- nanoseconds)
-                return .nanoseconds(diff)
-            }
-
-            public static func < (lhs: Self, rhs: Self) -> Bool {
-                lhs.nanoseconds < rhs.nanoseconds
-            }
-
-            /// Returns the duration between two instants.
-            ///
-            /// Explicit overload to prevent shadowing by unrelated `-` operators
-            /// in the module graph (e.g., Affine primitives `Ordinal.Protocol` operator).
-            public static func - (lhs: Self, rhs: Self) -> Duration {
-                rhs.duration(to: lhs)
-            }
-        }
+        ///
+        /// Phantom-tagged nanosecond position. Type-distinct from `Clock.Suspending.Instant`
+        /// by construction — the two cannot be mixed at compile time.
+        public typealias Instant = Tagged<Continuous, Clock.Nanoseconds>
 
         public var minimumResolution: Duration { .nanoseconds(1) }
 

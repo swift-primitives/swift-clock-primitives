@@ -28,25 +28,8 @@ extension Clock {
     /// }
     /// ```
     public final class Immediate: _Concurrency.Clock, @unchecked Sendable {
-        public struct Instant: InstantProtocol, Sendable, Hashable {
-            public let offset: Duration
-
-            public init(offset: Duration = .zero) {
-                self.offset = offset
-            }
-
-            public func advanced(by duration: Duration) -> Self {
-                .init(offset: offset + duration)
-            }
-
-            public func duration(to other: Self) -> Duration {
-                other.offset - offset
-            }
-
-            public static func < (lhs: Self, rhs: Self) -> Bool {
-                lhs.offset < rhs.offset
-            }
-        }
+        /// The instant type for immediate clock measurements.
+        public typealias Instant = Tagged<Immediate, Clock.Offset>
 
         private struct State: Sendable {
             var now: Instant
