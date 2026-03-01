@@ -2,30 +2,34 @@
 
 <!--
 ---
-version: 1.0.0
+version: 3.0.0
 last_updated: 2026-03-01
-status: RECOMMENDATION
+status: DECISION
 tier: 1
 ---
 -->
 
 ## Context
 
-The test `advance resumes multiple sleeps in order` in `Clock.Test Tests.swift:172-190`
-fails intermittently. Two tasks sleep with different deadlines (2s and 4s), a single
-`advance(by: .seconds(5))` resumes both, and the test asserts the post-sleep bodies
-execute in deadline order (`[1, 2]`). The observed failure is `[2, 1]`.
+The test `advance resumes multiple sleeps in order` fails intermittently. Two tasks sleep
+with different deadlines (2s and 4s), a single `advance(by: .seconds(5))` resumes both,
+and the test asserts the post-sleep bodies execute in deadline order (`[1, 2]`). The observed
+failure is `[2, 1]`.
 
-This investigation was triggered by the Tagged instant refactor, but the failure is
-pre-existing — it's a test design issue, not a regression.
+We provided `nonisolated(nonsending)` overloads of `withCheckedContinuation` and
+`withTaskCancellationHandler` in `swift-standard-library-extensions`, wired them into
+`clock-primitives` via `@_exported public import`, and observed: the test still fails
+intermittently. The nonsending overloads are necessary infrastructure but do not fix this
+problem. This document analyzes why.
 
 ## Question
 
-Why does the ordering assertion fail, and what is the principled fix?
+Why does `Clock.Test.advance(to:)` produce nondeterministic post-resume execution order,
+and why don't `nonisolated(nonsending)` continuation overloads fix it?
 
 ## Analysis
 
-### Mechanism: How `advance(to:)` resumes continuations
+### Layer 1: `advance(to:)` fires all resumes in a synchronous loop
 
 ```swift
 // Clock.Test.swift:114-126
@@ -40,194 +44,227 @@ public func advance(to deadline: Instant) {
         }
         return ready
     }
-    for c in toResume { c.resume() }  // all resumed in one synchronous loop
+    for c in toResume { c.resume() }
 }
 ```
 
-The continuations **are** collected in deadline order (sorted). The `for` loop calls
-`c.resume()` in that order. But `CheckedContinuation.resume()` does **not** execute the
-continuation body inline — it **enqueues** the task onto the cooperative thread pool.
-After the loop, both tasks are enqueued and race for thread pool pickup. The cooperative
-thread pool provides **no FIFO guarantee** for enqueued work items.
+Continuations are collected in deadline order (sorted). The `for` loop calls `resume()` in
+that order. But `CheckedContinuation.resume()` does **not** execute the continuation body
+inline — it **enqueues** the continuation onto an executor. After the loop completes, all
+continuation bodies are enqueued simultaneously and race for execution.
 
-### `Task.immediate` guarantees registration, not post-resume execution
+### Layer 2: `resume()` enqueues on the continuation's executor
 
-SE-0472 (`Task.immediate`) guarantees that the task body executes synchronously on the
-caller's thread up to its **first real suspension point**. In the test:
+When `resume()` is called on a `CheckedContinuation`, the Swift runtime schedules the
+continuation body on the executor that was captured when `withCheckedContinuation` was
+called. Which executor is captured depends on the isolation context at the call site.
 
-```swift
-let task1 = Task.immediate {
-    try await clock.sleep(until: .init(offset: .seconds(2)))  // suspends here
-    order.withLock { $0.append(1) }  // runs AFTER resumption — on thread pool
-}
-```
-
-`Task.immediate` ensures the sleep **registration** happens before the next line of the
-test. But the post-sleep body (`order.append(1)`) runs after the continuation is resumed
-by `advance` — at which point it's on the thread pool with no ordering guarantees.
-
-### The real problem: `withCheckedContinuation` is not `nonisolated(nonsending)`
-
-The `sleep` method is `nonisolated(nonsending)`:
+The continuation is created inside `Clock.Test.sleep`:
 
 ```swift
 nonisolated(nonsending)
-public func sleep(
-    until deadline: Instant,
-    tolerance: Duration? = nil
-) async throws {
+public func sleep(until deadline: Instant, ...) async throws {
     // ...
-    await withCheckedContinuation { ... }  // ← stdlib version, NOT nonsending
+    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        state.withLock { st in
+            st.suspensions.append(State.Entry(id: id, deadline: deadline, continuation: continuation))
+        }
+    }
     // ...
 }
 ```
 
-The method itself inherits the caller's isolation. But `withCheckedContinuation` is the
-current stdlib version — it is **not** `nonisolated(nonsending)`. When `resume()` is
-called on the continuation, the task is **enqueued** on the cooperative thread pool rather
-than executing inline on the caller's thread. This is the source of non-determinism.
-
-If `withCheckedContinuation` were `nonisolated(nonsending)`, then `resume()` would
-execute the continuation body **inline on the caller's thread** — making the ordering
-in `advance(to:)`'s `for c in toResume` loop fully deterministic.
-
-### Point-Free's diagnosis (Episode 355, "Synchronous sleep")
-
-Point-Free Episode 355 (Feb 23, 2026) identifies this exact problem and its solution:
-
-> "We have now shown that once isolation is strictly controlled that even time-based
-> asynchrony can be tested in a synchronous fashion with 100% deterministic results."
-> — 29:06
-
-> "And we only showed this for immediate clocks, but a similar thing can be shown with
-> test clocks... but there is just a tiny bit of work that needs to be done in Swift
-> before this is possible. We need `nonisolated(nonsending)` versions of both
-> `withUnsafeContinuation` **and** `withTaskCancellationHandler`. Once that is possible
-> test clocks will be able to squash all unnecessary suspension points and give us the
-> ability to fully test the flow of time without sprinkling yields all throughout our
-> code." — 29:15
-
-They explicitly contrast this with their old `TestClock` approach (async `advance` +
-`Task.megaYield`):
-
-> "We were forced to insert little yields into various parts in order to workaround the
-> fact that it's nearly impossible to reliably test async code in Swift up until recently."
-> — 22:53
-
-> "There isn't a single yield in TCA2 or the ImmediateClock, and that also means that
-> large test suites are going to get a lot faster. Those yields were problematic for lots
-> of tests running concurrently because it creates a lot of busy work for the scheduler."
-> — 28:38
-
-### Point-Free's old approach: `Task.megaYield` (rejected)
-
-Point-Free's current `swift-clocks` 1.x `TestClock.advance(to:)` is `async` and uses
-`Task.megaYield()` (20 yields via detached background tasks) between each continuation
-resumption. This is a **heuristic workaround** — it's probabilistic, not deterministic,
-environment-dependent, and explicitly being replaced by the `nonisolated(nonsending)`
-approach in their TCA 2.0 work.
-
-This approach is forbidden at the primitives layer. No `Task.yield()` or `Task.megaYield()`.
-
-### Swift stdlib status: `nonisolated(nonsending)` continuations
-
-A [Swift Forums pre-pitch](https://forums.swift.org/t/pre-pitch-updating-with-checked-unsafe-continuation-to-support-typed-throws-and-perhaps-nonisolated-nonsending/84770)
-proposes updating `withCheckedContinuation` and `withUnsafeContinuation` to support both
-typed throws and `nonisolated(nonsending)`. Konrad Malawski (ktoso) is actively
-implementing these changes. Key points from the thread:
-
-- Multiple pending PRs address `nonisolated(nonsending)` adoption in the Concurrency library
-- Changes are "pretty difficult" and have uncovered underlying bugs requiring fixes first
-- "ABI must be maintained" — careful overload management required
-- Implementation scheduled for "coming weeks" (as of early 2026)
-- Typed throws and `nonisolated(nonsending)` will ship together to minimize overloads
-
-Once available, `Clock.Test.sleep` will use the `nonisolated(nonsending)` variant of
-`withCheckedContinuation`. At that point, `resume()` will execute the continuation body
-inline on the caller's thread, and `advance(to:)`'s `for c in toResume` loop will produce
-deterministic execution order.
-
-### Option A: Wait for `nonisolated(nonsending)` continuations
-
-When Swift ships `nonisolated(nonsending)` `withCheckedContinuation`:
-
-1. Update `Clock.Test.sleep` to use the new variant
-2. The test becomes deterministic with no code changes
-3. The ordering assertion is correct — it tests what `advance` guarantees
-
-**Pros**: Principled. Zero heuristics. Test asserts real behavior.
-
-**Cons**: Blocked on Swift stdlib. Unknown exact timeline (weeks, not months).
-
-### Option B: Sequential advance test pattern (interim)
-
-Rewrite the test to advance to each deadline individually, ensuring only one continuation
-is resumed per advance:
+The `withCheckedContinuation` call resolves to our nonsending overload (from
+`Standard_Library_Extensions`), which calls `_Concurrency.withCheckedContinuation`. The
+stdlib function has signature:
 
 ```swift
-@Test
-func `advance resumes multiple sleeps in order`() async throws {
-    let clock = Clock.Test()
-    let order = OSAllocatedUnfairLock(initialState: [Int]())
-
-    let task1 = Task.immediate {
-        try await clock.sleep(until: .init(offset: .seconds(2)))
-        order.withLock { $0.append(1) }
-    }
-
-    let task2 = Task.immediate {
-        try await clock.sleep(until: .init(offset: .seconds(4)))
-        order.withLock { $0.append(2) }
-    }
-
-    clock.advance(by: .seconds(2))    // resumes only task1
-    try await task1.value              // wait for task1 to complete
-    clock.advance(by: .seconds(2))    // resumes only task2
-    try await task2.value              // wait for task2 to complete
-    #expect(order.withLock { $0 } == [1, 2])
-}
+public func withCheckedContinuation<T>(
+    isolation: isolated (any Actor)? = #isolation,
+    function: String = #function,
+    _ body: (CheckedContinuation<T, Never>) -> Void
+) async -> T
 ```
 
-**Pros**: Deterministic now. No API changes. No yields. Tests what is actually
-guaranteed today (each sleep wakes at its deadline). Stronger test — verifies tasks
-resume at the right time, not just in the right order.
+The `isolation:` parameter defaults to `#isolation`. Per SE-0461, `#isolation` inside a
+`nonisolated(nonsending)` async function evaluates to the **implicit isolated parameter**
+(the caller's actor), not always `nil`. So our wrapper correctly forwards isolation.
 
-**Cons**: Tests a weaker property than the batch-resume case. Must be revisited when
-nonsending continuations arrive (the batch test should be re-enabled).
+### Layer 3: The caller has no actor isolation
 
-### Comparison
+The isolation chain from test to continuation:
 
-| Criterion | A: Wait for nonsending | B: Sequential advance |
-|-----------|----------------------|-----------------------|
-| Determinism | Guaranteed (once available) | Guaranteed (now) |
-| Yields | None | None |
-| API change | None (sleep impl detail) | None |
-| Test strength | Tests batch ordering | Tests per-deadline ordering |
-| Available | Blocked on Swift | Now |
+```
+Test function                    → cooperative pool (no actor, #isolation = nil)
+  └─ Task.immediate { }         → inherits test's isolation (nil)
+       └─ clock.sleep()         → nonisolated(nonsending), inherits nil
+            └─ our wrapper      → nonisolated(nonsending), inherits nil, #isolation = nil
+                 └─ stdlib      → isolation: nil → continuation resumes on cooperative pool
+```
+
+`#isolation` correctly propagates through the nonsending wrapper (per SE-0461). But the
+value being propagated is `nil` — because the test function itself has no actor isolation.
+The continuation is created with `isolation: nil`, so `resume()` enqueues onto the
+**cooperative thread pool**.
+
+### Layer 4: The cooperative thread pool is not a serial executor
+
+The cooperative thread pool is a multi-threaded work-stealing pool. When multiple items
+are enqueued, **any available thread** can pick up any item. There is no FIFO guarantee
+across threads.
+
+After `advance(to:)` calls `resume()` for both continuations:
+- Thread A might pick up task1's continuation → appends `1`
+- Thread B might pick up task2's continuation → appends `2`
+- Or Thread B picks up task2 first → appends `2` before `1`
+
+The enqueue order is deterministic (deadline-sorted). The execution order is not.
+
+### Layer 5: Why `nonisolated(nonsending)` overloads don't fix this
+
+Our nonsending `withCheckedContinuation` wrapper prevents an **unnecessary executor hop**.
+Without it, the stdlib's non-nonsending version would always schedule the continuation on
+the cooperative pool regardless of the caller's isolation. With our wrapper, the continuation
+resumes on the caller's executor — which is correct behavior.
+
+But the fix only matters when the caller IS on a serial executor:
+
+| Caller context | Without nonsending | With nonsending |
+|---|---|---|
+| `@MainActor` (serial) | Resumes on cooperative pool → nondeterministic | Resumes on MainActor → **deterministic (FIFO)** |
+| Cooperative pool (no actor) | Resumes on cooperative pool → nondeterministic | Resumes on cooperative pool → **still nondeterministic** |
+
+The test runs without actor isolation. The nonsending overloads correctly preserve the
+caller's context — which is `nil` (no actor). So `resume()` still enqueues on the
+cooperative pool. No ordering improvement.
+
+### Empirical evidence
+
+We ran the test suite 3 times after adding nonsending overloads:
+1. **93/93 passed** (including the ordering test)
+2. **93/93 passed** (after typed-throws fix)
+3. **95/96 failed** — the ordering test failed with `[2, 1]`
+
+The nonsending overloads may reduce the race window (by eliminating one executor hop) but
+do not eliminate the nondeterminism. The failure is intermittent, confirming a race condition
+rather than a deterministic bug.
+
+### Contrast with Point-Free's approach
+
+Point-Free Episode 355 claims `nonisolated(nonsending)` makes test clocks deterministic.
+Their context differs from ours in one critical way: **TCA features run on `@MainActor`**.
+Their tests inherit `@MainActor` isolation, so:
+
+```
+@MainActor test function         → MainActor (serial, #isolation = MainActor.shared)
+  └─ Task.immediate { }          → inherits @MainActor
+       └─ clock.sleep()          → nonisolated(nonsending), inherits @MainActor
+            └─ withChecked...    → isolation: MainActor.shared → resumes on MainActor
+```
+
+On the MainActor (serial executor), FIFO ordering is guaranteed. Nonsending ensures the
+continuation resumes on the MainActor rather than hopping to the cooperative pool. The
+combination of **nonsending + serial executor** produces deterministic ordering.
+
+Point-Free's statement is accurate for their use case but implicitly assumes a serial
+executor. The general statement "nonsending makes clocks deterministic" is incomplete — it
+should be "nonsending + serial executor makes clocks deterministic."
+
+### Summary of the problem
+
+The nondeterminism has **two independent causes**, both of which must be addressed:
+
+1. **`advance(to:)` provides no serialization** — it fires all `resume()` calls in a tight
+   synchronous loop. There is no mechanism to wait for one continuation's post-resume work
+   to complete before resuming the next.
+
+2. **The cooperative thread pool has no FIFO guarantee** — multiple enqueued items race for
+   execution across threads. This is a fundamental property of the cooperative pool, not a
+   bug.
+
+The nonsending overloads address a **third**, separate problem: the stdlib's non-nonsending
+`withCheckedContinuation` causes unnecessary executor hops even when the caller IS on a
+serial executor. The nonsending overloads are necessary infrastructure for serial-executor
+determinism but are orthogonal to the cooperative-pool ordering problem.
 
 ## Outcome
 
-**Status**: RECOMMENDATION
+**Status**: DECISION — no source changes to `Clock.Test`; fix the tests.
 
-1. **Interim (now)**: Apply Option B — rewrite the test to use sequential advances. This
-   is deterministic, yield-free, and tests the correct property.
+### The clock is correct; the tests were wrong
 
-2. **When `nonisolated(nonsending)` `withCheckedContinuation` ships**: Update
-   `Clock.Test.sleep` to use the nonsending variant. Re-enable the batch ordering test
-   (the original test with a single `advance(by: .seconds(5))`). At that point, the batch
-   test will be deterministic because `resume()` will execute inline.
+The two causes identified above are not independent — cause 1 (batch resume) is only a
+problem in combination with cause 2 (no FIFO). On a serial executor, FIFO guarantees
+that batch-enqueued continuations execute in enqueue order. Since `advance(to:)` sorts
+by deadline before calling `resume()`, the enqueue order is deadline order, and FIFO
+preserves it.
 
-3. **Never**: `Task.yield()`, `Task.megaYield()`, or any heuristic yield pattern.
+Trace on `@MainActor`:
 
-The test is conceptually correct — `advance(to:)` *does* resume continuations in deadline
-order. The non-determinism comes entirely from `withCheckedContinuation` not being
-`nonisolated(nonsending)`, which forces a thread hop on resume. This is a Swift stdlib
-limitation, not a `Clock.Test` design flaw.
+```
+@MainActor test:
+  advance(by: .seconds(5))          ← sync, runs on MainActor
+    → resume(c1)                     ← enqueues c1 on MainActor
+    → resume(c2)                     ← enqueues c2 on MainActor
+    → returns
 
-## References
+  try await task1.value              ← test suspends
 
-- [SE-0472: Starting tasks synchronously from caller context](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0472-task-start-synchronously-on-caller-context.md)
-- [Point-Free Episode 355: Beyond Basics: Isolation, ~Copyable, ~Escapable](https://www.pointfree.co/episodes/ep355-beyond-basics-isolation-copyable-escapable) — "Synchronous sleep" section (22:22–29:15)
-- [Pre-Pitch: updating with{Checked|Unsafe}Continuation for typed throws and nonisolated(nonsending)](https://forums.swift.org/t/pre-pitch-updating-with-checked-unsafe-continuation-to-support-typed-throws-and-perhaps-nonisolated-nonsending/84770)
-- [Point-Free swift-clocks TestClock](https://github.com/pointfreeco/swift-clocks/blob/main/Sources/Clocks/TestClock.swift) — old `Task.megaYield` approach
-- [nonisolated(nonsending) by Default](https://docs.swift.org/compiler/documentation/diagnostics/nonisolated-nonsending-by-default/)
+  MainActor queue: [c1, c2]         ← FIFO
+    → c1 dequeues: sleep returns, caller appends 1, task1 completes
+    → c2 dequeues: sleep returns, caller appends 2, task2 completes
+
+  result: [1, 2] ✓ deterministic
+```
+
+The two prerequisites are:
+
+1. **`nonisolated(nonsending)` on `sleep()`** — ensures `resume()` targets the caller's
+   executor rather than always hopping to the cooperative pool. Already in place via the
+   nonsending `withCheckedContinuation` overload in `Standard_Library_Extensions`.
+
+2. **A serial executor at the call site** — provides the FIFO guarantee. Tests that assert
+   ordering of simultaneous resumes must use `@MainActor`.
+
+### Rejected alternative: gate/serialization in `advance()`
+
+Making `advance()` async with a gate/rendezvous pattern (each resume awaits a gate signal
+from `sleep()` before firing the next) was considered and rejected:
+
+- **Unnecessary on serial executors**: FIFO already serializes execution in enqueue order.
+- **Insufficient on the cooperative pool**: the gate serializes `sleep()` itself but
+  post-sleep caller work still races across threads — the cooperative pool's lack of FIFO
+  is unfixable from inside the clock.
+- **Breaks the synchronous API**: `advance()` and `run()` would become `async`, requiring
+  `await` at every call site across the ecosystem.
+- **Over-engineers the primitive**: deterministic ordering is a property of the execution
+  context, not the clock. The clock's job is controllable time, not executor serialization.
+
+### Changes applied
+
+- Added `@MainActor` to 3 ordering tests that assert simultaneous-resume order:
+  `advance resumes multiple sleeps in order`, `reverse-scheduled sleeps resume in deadline
+  order`, `cancelled task does not disrupt ordering of remaining sleeps`.
+- `sequential advances resume correct subsets in order` does NOT need `@MainActor` — each
+  advance resumes exactly one task, and the test awaits completion before the next advance.
+- No changes to `Clock.Test.swift`.
+
+## Related Documents
+
+In order of relevance:
+
+1. **[Pre-Pitch: nonsending continuations](https://forums.swift.org/t/pre-pitch-updating-with-checked-unsafe-continuation-to-support-typed-throws-and-perhaps-nonisolated-nonsending/84770)** — The stdlib change that would make `withCheckedContinuation` natively `nonisolated(nonsending)` with typed throws. Necessary infrastructure for serial-executor determinism. Active implementation by ktoso.
+
+2. **[SE-0461: Async function isolation](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0461-async-function-isolation.md)** — Defines `#isolation` semantics in `nonisolated(nonsending)` functions. Confirms `#isolation` forwards the implicit isolated parameter (not always `nil`). This is why our wrapper correctly propagates isolation — but `nil` in, `nil` out.
+
+3. **[Point-Free Episode 355: Beyond Basics](https://www.pointfree.co/episodes/ep355-beyond-basics-isolation-copyable-escapable)** — "Synchronous sleep" section (22:22–29:15). Demonstrates nonsending + `@MainActor` = deterministic test clocks. Key insight: their approach implicitly requires a serial executor; they don't test on the cooperative pool.
+
+4. **[SE-0472: Task.immediate](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0472-task-start-synchronously-on-caller-context.md)** — Guarantees task body executes synchronously to first suspension point. Ensures sleep registration is deterministic; does not affect post-resume execution ordering.
+
+5. **[instant-affine-arithmetic.md](instant-affine-arithmetic.md)** — The Tagged instant refactor that first exposed this test failure. Confirmed the failure is pre-existing, not a regression from the refactor.
+
+6. **[SE-0420: Inheritance of actor isolation](https://github.com/swiftlang/swift-evolution/blob/main/proposals/0420-inheritance-of-actor-isolation.md)** — Introduced `#isolation` macro. Baseline semantics extended by SE-0461 for nonsending functions.
+
+7. **[swiftlang/swift#83760](https://github.com/swiftlang/swift/issues/83760)** — Compiler bug: `nonisolated(nonsending)` to `@isolated(any)` conversion uses `nil` actor. Related but distinct from our case — our wrapper uses `#isolation` default parameter expansion, not `@isolated(any)` conversion. Open as of 2025-08-15.
+
+8. **[Point-Free swift-clocks TestClock](https://github.com/pointfreeco/swift-clocks/blob/main/Sources/Clocks/TestClock.swift)** — 1.x approach using async `advance()` + `Task.megaYield()`. Explicitly rejected for primitives layer.

@@ -168,7 +168,7 @@ extension Clock.Test.Test.Integration {
         #expect(resumed.withLock { $0 })
     }
 
-    @Test
+    @Test @MainActor
     func `advance resumes multiple sleeps in order`() async throws {
         let clock = Clock.Test()
         let order = OSAllocatedUnfairLock(initialState: [Int]())
@@ -227,5 +227,111 @@ extension Clock.Test.Test.Integration {
         clock.advance(by: .seconds(3))
         clock.advance(by: .seconds(2))
         #expect(clock.now.offset == .seconds(5))
+    }
+
+    // MARK: - Ordering regression tests
+    //
+    // These tests verify deterministic ordering that depends on two properties:
+    // 1. nonisolated(nonsending) continuation overloads — ensure resume()
+    //    targets the caller's executor rather than the cooperative thread pool.
+    // 2. @MainActor isolation — provides a serial executor with FIFO ordering.
+    //
+    // Without both, resume() enqueues on the cooperative thread pool where
+    // multiple enqueued items race across threads (no FIFO guarantee).
+
+    @Test @MainActor
+    func `reverse-scheduled sleeps resume in deadline order`() async throws {
+        let clock = Clock.Test()
+        let order = OSAllocatedUnfairLock(initialState: [Int]())
+
+        // Schedule in REVERSE deadline order: 3, 2, 1
+        let task3 = Task.immediate {
+            try await clock.sleep(until: .init(offset: .seconds(6)))
+            order.withLock { $0.append(3) }
+        }
+
+        let task2 = Task.immediate {
+            try await clock.sleep(until: .init(offset: .seconds(4)))
+            order.withLock { $0.append(2) }
+        }
+
+        let task1 = Task.immediate {
+            try await clock.sleep(until: .init(offset: .seconds(2)))
+            order.withLock { $0.append(1) }
+        }
+
+        clock.advance(by: .seconds(7))
+        try await task1.value
+        try await task2.value
+        try await task3.value
+        #expect(order.withLock { $0 } == [1, 2, 3])
+    }
+
+    @Test
+    func `sequential advances resume correct subsets in order`() async throws {
+        let clock = Clock.Test()
+        let order = OSAllocatedUnfairLock(initialState: [Int]())
+
+        let task1 = Task.immediate {
+            try await clock.sleep(until: .init(offset: .seconds(1)))
+            order.withLock { $0.append(1) }
+        }
+
+        let task2 = Task.immediate {
+            try await clock.sleep(until: .init(offset: .seconds(3)))
+            order.withLock { $0.append(2) }
+        }
+
+        let task3 = Task.immediate {
+            try await clock.sleep(until: .init(offset: .seconds(5)))
+            order.withLock { $0.append(3) }
+        }
+
+        // First advance resumes only task1
+        clock.advance(by: .seconds(2))
+        try await task1.value
+        #expect(order.withLock { $0 } == [1])
+
+        // Second advance resumes only task2
+        clock.advance(by: .seconds(2))
+        try await task2.value
+        #expect(order.withLock { $0 } == [1, 2])
+
+        // Third advance resumes only task3
+        clock.advance(by: .seconds(2))
+        try await task3.value
+        #expect(order.withLock { $0 } == [1, 2, 3])
+    }
+
+    @Test @MainActor
+    func `cancelled task does not disrupt ordering of remaining sleeps`() async throws {
+        let clock = Clock.Test()
+        let order = OSAllocatedUnfairLock(initialState: [Int]())
+
+        let task1 = Task.immediate {
+            try await clock.sleep(until: .init(offset: .seconds(2)))
+            order.withLock { $0.append(1) }
+        }
+
+        let taskCancelled = Task.immediate {
+            try await clock.sleep(until: .init(offset: .seconds(3)))
+            order.withLock { $0.append(99) }
+        }
+
+        let task2 = Task.immediate {
+            try await clock.sleep(until: .init(offset: .seconds(4)))
+            order.withLock { $0.append(2) }
+        }
+
+        // Cancel the middle task before advancing
+        taskCancelled.cancel()
+
+        clock.advance(by: .seconds(5))
+        try await task1.value
+        _ = await taskCancelled.result
+        try await task2.value
+
+        // 99 must not appear; 1 and 2 must be in order
+        #expect(order.withLock { $0 } == [1, 2])
     }
 }
