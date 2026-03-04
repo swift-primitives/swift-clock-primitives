@@ -9,6 +9,8 @@
 //
 // ===----------------------------------------------------------------------===//
 
+public import Witness_Primitives
+
 extension Clock {
     /// A type-erased clock that wraps another clock.
     ///
@@ -23,7 +25,7 @@ extension Clock {
     /// let clock: Clock.`Any`<Duration> = Clock.`Any`(ContinuousClock())
     /// try await clock.sleep(for: .seconds(1))
     /// ```
-    public struct `Any`<D: DurationProtocol & Hashable>: _Concurrency.Clock, @unchecked Sendable {
+    public struct `Any`<D: DurationProtocol & Hashable>: _Concurrency.Clock, @unchecked Sendable, Witness.`Protocol` {
         public struct Instant: InstantProtocol, Sendable {
             fileprivate let _box: Box
 

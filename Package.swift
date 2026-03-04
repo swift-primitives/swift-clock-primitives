@@ -20,6 +20,7 @@ let package = Package(
     dependencies: [
         .package(path: "../swift-identity-primitives"),
         .package(path: "../swift-standard-library-extensions"),
+        .package(path: "../swift-witness-primitives"),
     ],
     targets: [
         .target(
@@ -27,6 +28,7 @@ let package = Package(
             dependencies: [
                 .product(name: "Identity Primitives", package: "swift-identity-primitives"),
                 .product(name: "Standard Library Extensions", package: "swift-standard-library-extensions"),
+                .product(name: "Witness Primitives", package: "swift-witness-primitives"),
             ]
         ),
         .testTarget(
