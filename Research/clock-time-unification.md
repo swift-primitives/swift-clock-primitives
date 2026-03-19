@@ -3,7 +3,7 @@
 | Field | Value |
 |-------|-------|
 | **Date** | 2026-03-19 |
-| **Status** | DECISION |
+| **Status** | IMPLEMENTED |
 | **Tier** | 2 (cross-package design decision) |
 | **Trigger** | `CLOCK_MONOTONIC` vs `CLOCK_MONOTONIC_RAW` mismatch caused 5.5-second deadline bug in swift-io |
 
@@ -231,24 +231,24 @@ No dedicated clock primitives exist for these platforms. The `#if` guards in ker
 
 ### Fake driver note
 
-The IO completions fake driver (`IO.Completion.Driver.Fake.swift:149`) has a private `monotonicNanoseconds()` that uses `CLOCK_UPTIME_RAW` on Darwin — this is actually the **suspending** clock, not the continuous clock. The name is misleading but the behavior is correct for its use case (deadline expiration in tests where sleep behavior doesn't matter). Consider renaming to `suspendingNanoseconds()` for clarity, but this is cosmetic.
+The IO completions fake driver (`IO.Completion.Driver.Fake.swift`) had a private `monotonicNanoseconds()` that used `CLOCK_UPTIME_RAW` on Darwin — the **suspending** clock, not the continuous clock. **Replaced** with `Kernel.Clock.Continuous.now()` to match production IO code. The private reimplementation and platform-specific imports (Darwin/Glibc/WinSDK) were removed entirely.
 
 ## Migration Plan
 
-### Phase 1: Delete `Kernel.Time.monotonicNanoseconds()` (iso-9945)
+### Phase 1: Delete `Kernel.Time.monotonicNanoseconds()` — COMPLETE (2026-03-19)
 
-1. **Migrate glob test** (`swift-windows/Tests/Windows Kernel Tests/Windows.Kernel.Glob Tests.swift:117`):
-   - Replace `Kernel.Time.monotonicNanoseconds()` with `Kernel.Clock.Continuous.now()`
-   - This is for unique name generation — any monotonic source works
+1. **Migrated glob test** (`swift-windows/Tests/Windows Kernel Tests/Windows.Kernel.Glob Tests.swift:117`):
+   `Kernel.Time.monotonicNanoseconds()` → `Kernel.Clock.Continuous.now()`
 
-2. **Delete** `monotonicNanoseconds()` from `/Users/coen/Developer/swift-iso/swift-iso-9945/Sources/ISO 9945 Kernel/ISO 9945.Kernel.Time.swift:54-64`
+2. **Deleted** `monotonicNanoseconds()` from `swift-iso-9945/Sources/ISO 9945 Kernel/ISO 9945.Kernel.Time.swift`
 
-3. **Verify** no other consumers exist (grep confirmed: only the glob test and the private fake driver reimplementation)
+3. **Replaced** fake driver's private `monotonicNanoseconds()` reimplementation (`swift-io/Tests/IO Completions Tests/IO.Completion.Driver.Fake.swift`) with `Kernel.Clock.Continuous.now()`. Removed platform-specific imports (Darwin/Glibc/WinSDK), added `import Kernel`.
+
+4. **Verified** zero remaining consumers via workspace-wide grep (only research documents reference the deleted API).
 
 ### Phase 2: Documentation (optional)
 
 1. Add cross-reference doc comment on `Kernel.Clock` pointing to `Clock.*` for typed instants
-2. Consider renaming fake driver's `monotonicNanoseconds()` to `suspendingNanoseconds()`
 
 ### Phase 3: Convenience bridge (deferred)
 
@@ -256,23 +256,23 @@ Add `Kernel.Time.Deadline` extension in iso-9945 accepting `Clock.Continuous.Ins
 
 ## Decision Summary
 
-| Question | Decision | Action |
+| Question | Decision | Status |
 |----------|----------|--------|
-| Q1: Remove `monotonicNanoseconds()`? | **Yes, delete** | Migrate 1 consumer, delete function |
-| Q2: Remove/relocate `realtimeEpochSeconds()`? | **Keep as-is** | No action |
-| Q3: Unify `Kernel.Clock.*` and `Clock.*`? | **Status quo** | Two namespaces coexist by design |
+| Q1: Remove `monotonicNanoseconds()`? | **Yes, delete** | DONE — deleted from iso-9945, all consumers migrated |
+| Q2: Remove/relocate `realtimeEpochSeconds()`? | **Keep as-is** | No action needed |
+| Q3: Unify `Kernel.Clock.*` and `Clock.*`? | **Status quo** | No action needed |
 | Q4: Rename/move `Kernel.Time.Deadline`? | **Keep as-is** | Optional bridge deferred |
-| Q5: Rename `Kernel.Time`? | **Keep as-is** | Coherent after Q1 removal |
+| Q5: Rename `Kernel.Time`? | **Keep as-is** | No action needed |
 | Q6: Platform completeness? | **Complete for supported platforms** | WASI/OpenBSD deferred |
 
 ## Cross-References
 
-| Package | Affected Files |
-|---------|---------------|
-| swift-iso-9945 | `Sources/ISO 9945 Kernel/ISO 9945.Kernel.Time.swift` (delete `monotonicNanoseconds()`) |
-| swift-iso-9945 | `Sources/ISO 9945 Kernel/ISO 9945.Kernel.Clock.swift` (no changes — canonical implementation) |
-| swift-windows (in swift-foundations) | `Tests/Windows Kernel Tests/Windows.Kernel.Glob Tests.swift:117` (migrate consumer) |
-| swift-io (in swift-foundations) | `Tests/IO Completions Tests/IO.Completion.Driver.Fake.swift:149` (cosmetic rename, optional) |
-| swift-tests (in swift-foundations) | `Sources/Tests Performance/Test.Trait.Scope.Provider.timed.swift:202` (no changes — uses `realtimeEpochSeconds()`) |
-| swift-kernel-primitives | `Sources/Kernel Time Primitives/Kernel.Time.Deadline.swift` (no changes) |
-| swift-clock-primitives | `Sources/Clock Primitives/Clock.Continuous.swift` (no changes) |
+| Package | Affected Files | Status |
+|---------|---------------|--------|
+| swift-iso-9945 | `Sources/ISO 9945 Kernel/ISO 9945.Kernel.Time.swift` | `monotonicNanoseconds()` deleted |
+| swift-iso-9945 | `Sources/ISO 9945 Kernel/ISO 9945.Kernel.Clock.swift` | No changes — canonical implementation |
+| swift-windows (in swift-foundations) | `Tests/Windows Kernel Tests/Windows.Kernel.Glob Tests.swift:117` | Migrated to `Kernel.Clock.Continuous.now()` |
+| swift-io (in swift-foundations) | `Tests/IO Completions Tests/IO.Completion.Driver.Fake.swift` | Replaced private reimpl with `Kernel.Clock.Continuous.now()` |
+| swift-tests (in swift-foundations) | `Sources/Tests Performance/Test.Trait.Scope.Provider.timed.swift:202` | No changes — uses `realtimeEpochSeconds()` |
+| swift-kernel-primitives | `Sources/Kernel Time Primitives/Kernel.Time.Deadline.swift` | No changes |
+| swift-clock-primitives | `Sources/Clock Primitives/Clock.Continuous.swift` | No changes |
