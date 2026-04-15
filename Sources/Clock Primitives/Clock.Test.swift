@@ -38,7 +38,20 @@ extension Clock {
     ///     clock.run()
     /// }
     /// ```
-    public final class Test: _Concurrency.Clock, @unchecked Sendable {
+    /// ## Safety Invariant
+    ///
+    /// Internal `Mutex<State>` serializes all access. All reads and mutations
+    /// go through `state.withLock`.
+    ///
+    /// ## Intended Use
+    ///
+    /// - Deterministic testing of time-dependent logic.
+    /// - Explicit time advancement with `advance(by:)` and `run()`.
+    ///
+    /// ## Non-Goals
+    ///
+    /// - Not a real-time clock; time only advances explicitly.
+    public final class Test: _Concurrency.Clock, @unsafe @unchecked Sendable {
         /// The instant type for test clock measurements.
         public typealias Instant = Tagged<Test, Clock.Offset>
 

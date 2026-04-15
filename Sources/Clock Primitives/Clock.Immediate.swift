@@ -27,7 +27,20 @@ extension Clock {
     ///     }
     /// }
     /// ```
-    public final class Immediate: _Concurrency.Clock, @unchecked Sendable {
+    /// ## Safety Invariant
+    ///
+    /// Internal `Mutex<State>` serializes all access. All reads and mutations
+    /// go through `state.withLock`.
+    ///
+    /// ## Intended Use
+    ///
+    /// - SwiftUI preview clocks with instant time advancement.
+    /// - Testing time-dependent logic without real delays.
+    ///
+    /// ## Non-Goals
+    ///
+    /// - Not a real-time clock; time only advances explicitly.
+    public final class Immediate: _Concurrency.Clock, @unsafe @unchecked Sendable {
         /// The instant type for immediate clock measurements.
         public typealias Instant = Tagged<Immediate, Clock.Offset>
 

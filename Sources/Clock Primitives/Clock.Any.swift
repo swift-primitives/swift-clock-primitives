@@ -25,6 +25,14 @@ extension Clock {
     /// let clock: Clock.`Any`<Duration> = Clock.`Any`(ContinuousClock())
     /// try await clock.sleep(for: .seconds(1))
     /// ```
+    // WHY: Category D — structural Sendable workaround (SP-7).
+    // WHY: Type-erased clock struct. Stored fields are @Sendable closures +
+    // WHY: generic D: DurationProtocol & Hashable (without Sendable). No
+    // WHY: synchronization, no ~Copyable. @unchecked exists because stored
+    // WHY: function-type properties and the generic D block structural inference.
+    // WHEN TO REMOVE: When compiler gains structural Sendable inference through
+    // WHEN TO REMOVE: @Sendable closure storage and generic parameters.
+    // TRACKING: unsafe-audit-findings.md Category D SP-7.
     public struct `Any`<D: DurationProtocol & Hashable>: _Concurrency.Clock, @unchecked Sendable, Witness.`Protocol` {
         public struct Instant: InstantProtocol, Sendable {
             fileprivate let _box: Box
@@ -90,6 +98,11 @@ extension Clock {
 
 extension Clock.`Any`.Instant {
     /// Type-erased box for instant storage.
+    // WHY: Category D — structural Sendable workaround (SP-7).
+    // WHY: Empty abstract class with no stored state. @unchecked enables
+    // WHY: the ConcreteBox subclass hierarchy to propagate Sendable through D.
+    // WHEN TO REMOVE: When compiler gains structural inference through class hierarchies.
+    // TRACKING: unsafe-audit-findings.md Category D SP-7.
     fileprivate class Box: @unchecked Sendable {
         func advanced(by duration: D) -> Box { fatalError("Must be overridden") }
         func duration(to other: Box) -> D { fatalError("Must be overridden") }
@@ -102,7 +115,10 @@ extension Clock.`Any`.Instant {
 private final class ConcreteBox<
     I: InstantProtocol & Hashable & Sendable,
     D: DurationProtocol & Hashable
->: Clock.`Any`<D>.Instant.Box, @unchecked Sendable where I.Duration == D {
+>: Clock.`Any`<D>.Instant.Box where I.Duration == D {
+    // WHY: Category D — structural Sendable workaround (SP-7).
+    // WHY: Immutable `let instant: I` after init. Sendable inherited from Box base.
+    // TRACKING: unsafe-audit-findings.md Category D SP-7.
     let instant: I
 
     init(_ instant: I) {
