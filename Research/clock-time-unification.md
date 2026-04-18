@@ -180,6 +180,38 @@ extension Kernel.Time.Deadline {
 
 This is additive, non-breaking, and lives at L2 where both types are available. **Deferred** — implement when a consumer needs it.
 
+### Update 2026-04-18 — Q4b revisit (type-path axis)
+
+The 2026-03-19 rejection of Q4b is **superseded**. Both rationales it cited are now stale:
+
+- *"Uses raw UInt64"* — Phase 1 of `clock-time-unification` (Q3 revisit, commits
+  `baf1789`–`c6e1bad`) migrated `Deadline`'s internal representation to typed
+  `Clock.Continuous.Instant`. The raw-UInt64 API surface no longer exists.
+- *"Lateral L1 dependency"* — `Kernel Time Primitives` already depends on
+  `Clock Primitives` (via `public import Clock_Primitives`) to hold the typed
+  `Instant`. The dependency the rejection was avoiding is already in place.
+
+With those constraints gone, the type's location no longer reflects its semantics:
+`Kernel.Time.Deadline` stores a `Clock.Continuous.Instant` and is only meaningful
+against continuous-clock readings. `Kernel.Clock.Continuous.Deadline` puts the
+clock identity in the type path, turning "mix a continuous-clock deadline with a
+suspending-clock reading" into a compile-error rather than a documentation smell.
+
+Current state:
+
+- `Kernel.Clock.Continuous.Deadline` and its `.Next` atomic cell live in
+  `Kernel Clock Primitives` (which now carries the `Clock_Primitives` dep).
+- `Kernel Event Primitives` depends on `Kernel Clock Primitives` and imports it
+  via `exports.swift`; consumer APIs (`poll`, `Driver`) take
+  `Kernel.Clock.Continuous.Deadline?`.
+- `Kernel Time Primitives/Kernel.Time.Deadline.swift` and `Kernel.Time.Deadline.Next.swift`
+  are **deleted**; `Kernel.Time` reverts to the `Instant` typealias plus
+  package-scope accessors.
+- Callers migrated across `swift-executor-primitives`, `swift-foundations/swift-kernel`,
+  and `swift-foundations/swift-io` tests.
+
+Same update-note mechanism as Q2/Q3's axis revisits.
+
 ## Q5: What is the `Kernel.Time` typealias for?
 
 ### Analysis
