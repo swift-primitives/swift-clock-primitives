@@ -71,6 +71,22 @@ Option 3 keeps the status quo but perpetuates the confusion between `Kernel.Time
 
 No action needed. If additional wall-clock APIs are needed in the future, they naturally belong on `Kernel.Time` as well.
 
+### Update 2026-04-18 — typed-return axis revisit
+
+The 2026-03-19 decision "keep `realtimeEpochSeconds() -> Double` as-is" is **superseded** by the typed-return work in Phase 1 (Q3, commits `baf1789`–`c6e1bad`). Once `Kernel.Clock.*.now()` started returning fully-typed `Clock.*.Instant`, the raw `Double` return from `realtimeEpochSeconds()` became the sole raw-int time API on `Kernel.Time`, and the ecosystem audit (`swift-institute/Audits/typed-time-clock-adoption.md`, finding #9) flagged it under [IMPL-006] (Typed Stored Properties) and [IMPL-INTENT].
+
+Current state:
+
+- `ISO_9945.Kernel.Time.realtime() -> Kernel.Time` (typed) — uses `clock_gettime(CLOCK_REALTIME, …)` for nanosecond precision.
+- `Windows.Kernel.Time.realtime() -> Kernel.Time` (typed) — mirrors POSIX; uses `GetSystemTimeAsFileTime` and decomposes internally.
+- `Kernel.Time.realtimeEpochSeconds() -> Double` — **deleted**.
+- `Windows.Kernel.Time.unixTime() -> Int64` and `unixTimeNanoseconds() -> Int64` — **deleted** (subsumed by `realtime()`).
+- Consumer at `swift-tests/Tests Performance/Test.Trait.Scope.Provider.timed.swift` migrated to `Kernel.Time.realtime()`; `Tests.History.Record.timestamp` widened from `Double` to `Instant`.
+
+The shift from Q2's conclusion happened because the audit ran the same site through the `/implementation` axioms (intent-over-mechanism, typed stored properties) that Q2's analysis predates. Q2's justification for keeping the raw API — "test infrastructure is a valid wall-clock consumer" — is still correct on the consumer side, but the API **shape** (raw `Double`) is what the audit flagged. The typed replacement honors both the original "keep wall-clock time on `Kernel.Time`" conclusion and the typed-return axis.
+
+Q3's update-note pattern applies here — same revisit mechanism.
+
 ## Q3: Should `Kernel.Clock.*` and `Clock.*` be unified?
 
 ### Analysis
