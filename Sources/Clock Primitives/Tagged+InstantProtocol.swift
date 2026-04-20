@@ -25,6 +25,29 @@ extension Tagged: @retroactive InstantProtocol where RawValue: InstantProtocol {
     }
 }
 
+// MARK: - Swift.Duration-concrete overloads
+
+/// Concrete-typed `advanced(by:)` and `duration(to:)` overloads for the common
+/// case where the wrapped `RawValue`'s `InstantProtocol.Duration` is
+/// `Swift.Duration`. Without these, the generic conformance above takes
+/// `RawValue.Duration` — Swift's contextual inference cannot resolve
+/// `.seconds(1)` / `.milliseconds(10)` through the associated-type projection,
+/// even when the projection is concretely `Swift.Duration`. With the specialized
+/// parameter type, Swift resolves `.seconds` directly on `Swift.Duration` and
+/// prefers these overloads (more specific) at the call site.
+
+extension Tagged where RawValue: InstantProtocol, RawValue.Duration == Swift.Duration {
+    @inlinable
+    public func advanced(by duration: Swift.Duration) -> Self {
+        Self(__unchecked: (), rawValue.advanced(by: duration))
+    }
+
+    @inlinable
+    public func duration(to other: Self) -> Swift.Duration {
+        rawValue.duration(to: other.rawValue)
+    }
+}
+
 // MARK: - Affine arithmetic operators
 
 extension Tagged where RawValue: InstantProtocol, RawValue.Duration == Swift.Duration {
