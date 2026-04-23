@@ -9,7 +9,7 @@
 // Result: CONFIRMED — Build Succeeded, all 7 variants pass at runtime
 // Date: 2026-03-01
 
-public import Identity_Primitives
+public import Tagged_Primitives
 
 // ============================================================================
 // MARK: - Base types conforming directly to InstantProtocol

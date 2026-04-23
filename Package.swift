@@ -18,7 +18,7 @@ let package = Package(
         )
     ],
     dependencies: [
-        .package(path: "../swift-identity-primitives"),
+        .package(path: "../swift-tagged-primitives"),
         .package(path: "../swift-standard-library-extensions"),
         .package(path: "../swift-witness-primitives"),
     ],
@@ -26,7 +26,7 @@ let package = Package(
         .target(
             name: "Clock Primitives",
             dependencies: [
-                .product(name: "Identity Primitives", package: "swift-identity-primitives"),
+                .product(name: "Tagged Primitives", package: "swift-tagged-primitives"),
                 .product(name: "Standard Library Extensions", package: "swift-standard-library-extensions"),
                 .product(name: "Witness Primitives", package: "swift-witness-primitives"),
             ]

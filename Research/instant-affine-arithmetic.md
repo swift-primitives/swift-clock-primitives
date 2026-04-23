@@ -496,7 +496,7 @@ or uses metatype identity will break. Functional usage (inits, properties, opera
 - [stdlib/public/core/Instant.swift](https://github.com/swiftlang/swift/blob/main/stdlib/public/core/Instant.swift) — disabled default operators
 - [stdlib/public/Concurrency/ContinuousClock.swift](https://github.com/swiftlang/swift/blob/main/stdlib/public/Concurrency/ContinuousClock.swift) — manual operator pattern
 - `swift-affine-primitives` — existing affine infrastructure (`Ordinal.Protocol`, `Affine.Discrete.Vector.Protocol`)
-- `swift-identity-primitives` — `Tagged<Tag, RawValue>` phantom type wrapper
+- `swift-tagged-primitives` — `Tagged<Tag, RawValue>` phantom type wrapper
 - [INFRA-200] — principled absences (no `Instant + Instant`)
 - `swift-institute/Research/clock-static-now-convenience.md` — related clock API research
 - `swift-clock-primitives/Experiments/tagged-instant/` — empirical verification (CONFIRMED)
