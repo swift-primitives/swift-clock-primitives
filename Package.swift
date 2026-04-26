@@ -19,6 +19,7 @@ let package = Package(
     ],
     dependencies: [
         .package(path: "../swift-tagged-primitives"),
+        .package(path: "../swift-carrier-primitives"),
         .package(path: "../swift-standard-library-extensions"),
         .package(path: "../swift-witness-primitives"),
     ],
@@ -27,6 +28,7 @@ let package = Package(
             name: "Clock Primitives",
             dependencies: [
                 .product(name: "Tagged Primitives", package: "swift-tagged-primitives"),
+                .product(name: "Carrier Primitives", package: "swift-carrier-primitives"),
                 .product(name: "Standard Library Extensions", package: "swift-standard-library-extensions"),
                 .product(name: "Witness Primitives", package: "swift-witness-primitives"),
             ]
