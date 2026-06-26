@@ -9,5 +9,14 @@
 //
 // ===----------------------------------------------------------------------===//
 
-@_exported public import Standard_Library_Extensions
-@_exported public import Tagged_Primitives
+extension Tagged where Underlying == Clock.Nanoseconds {
+    /// The nanosecond count since boot.
+    @inlinable
+    public var nanoseconds: UInt64 { underlying.rawValue }
+
+    /// Creates an instant from a nanosecond count.
+    @inlinable
+    public init(nanoseconds: UInt64) {
+        self.init(Clock.Nanoseconds(nanoseconds))
+    }
+}

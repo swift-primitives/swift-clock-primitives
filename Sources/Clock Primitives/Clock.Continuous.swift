@@ -13,7 +13,7 @@ extension Clock {
     /// A clock that measures elapsed time, continuing to advance while the system is asleep.
     ///
     /// Equivalent to Swift stdlib's `ContinuousClock` semantics:
-    /// - **Darwin**: Uses `CLOCK_MONOTONIC`
+    /// - **Darwin**: Uses `CLOCK_MONOTONIC_RAW` (immune to NTP adjustments)
     /// - **Linux**: Uses `CLOCK_BOOTTIME`
     /// - **Windows**: Uses `QueryPerformanceCounter`
     ///
@@ -28,50 +28,29 @@ extension Clock {
     /// // ... perform work (system may sleep) ...
     /// let elapsed: Duration = clock.now - start
     /// ```
-    public struct Continuous: _Concurrency.Clock, Sendable {
+    ///
+    /// - Note: `_Concurrency.Clock` conformance is added via extension in
+    ///   swift-iso-9945 (POSIX) or swift-windows-primitives (Windows).
+    public struct Continuous: Sendable {
+        /// The duration type for continuous-clock measurements.
         public typealias Duration = Swift.Duration
 
         /// The instant type for continuous clock measurements.
-        public struct Instant: InstantProtocol, Sendable, Hashable {
-            /// Nanoseconds since boot (monotonic).
-            public let nanoseconds: UInt64
+        ///
+        /// Phantom-tagged nanosecond position. Type-distinct from `Clock.Suspending.Instant`
+        /// by construction — the two cannot be mixed at compile time.
+        public typealias Instant = Tagged<Self, Clock.Nanoseconds>
 
-            public init(nanoseconds: UInt64) {
-                self.nanoseconds = nanoseconds
-            }
-
-            public func advanced(by duration: Duration) -> Self {
-                let (seconds, attoseconds) = duration.components
-                let nanos = seconds * 1_000_000_000 + attoseconds / 1_000_000_000
-                return Instant(nanoseconds: nanoseconds &+ UInt64(nanos))
-            }
-
-            public func duration(to other: Self) -> Duration {
-                let diff = Int64(bitPattern: other.nanoseconds &- nanoseconds)
-                return .nanoseconds(diff)
-            }
-
-            public static func < (lhs: Self, rhs: Self) -> Bool {
-                lhs.nanoseconds < rhs.nanoseconds
-            }
-        }
-
+        /// The smallest measurable duration: one nanosecond.
         public var minimumResolution: Duration { .nanoseconds(1) }
 
         /// Creates a continuous clock instance.
         public init() {}
 
-        /// The current instant according to the continuous clock.
-        public var now: Instant {
-            Instant(nanoseconds: Kernel.Clock.Continuous.now())
-        }
+        // Note: `now` property is provided via extension in swift-iso-9945 (POSIX)
+        // or swift-windows-primitives (Windows)
 
-        public func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
-            let target = deadline.nanoseconds
-            while Kernel.Clock.Continuous.now() < target {
-                try Task.checkCancellation()
-                try await Task.sleep(for: .nanoseconds(1_000_000)) // 1ms granularity
-            }
-        }
+        // Note: `sleep(until:tolerance:)` is provided via extension in swift-iso-9945 (POSIX)
+        // or swift-windows-primitives (Windows)
     }
 }

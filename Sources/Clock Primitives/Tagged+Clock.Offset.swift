@@ -9,5 +9,14 @@
 //
 // ===----------------------------------------------------------------------===//
 
-@_exported public import Standard_Library_Extensions
-@_exported public import Tagged_Primitives
+extension Tagged where Underlying == Clock.Offset {
+    /// The duration offset from zero.
+    @inlinable
+    public var offset: Swift.Duration { underlying.rawValue }
+
+    /// Creates an instant from a duration offset.
+    @inlinable
+    public init(offset: Swift.Duration = .zero) {
+        self.init(Clock.Offset(offset))
+    }
+}

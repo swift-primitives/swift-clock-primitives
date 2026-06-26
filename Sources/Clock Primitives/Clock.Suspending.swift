@@ -28,50 +28,23 @@ extension Clock {
     /// // ... perform work ...
     /// let elapsed: Duration = clock.now - start
     /// ```
-    public struct Suspending: _Concurrency.Clock, Sendable {
+    ///
+    /// - Note: `_Concurrency.Clock` conformance is added via extension in
+    ///   swift-iso-9945 (POSIX) or swift-windows-primitives (Windows).
+    public struct Suspending: Sendable {
+        /// The duration type for suspending-clock measurements.
         public typealias Duration = Swift.Duration
 
         /// The instant type for suspending clock measurements.
-        public struct Instant: InstantProtocol, Sendable, Hashable {
-            /// Nanoseconds since boot (excluding sleep time).
-            public let nanoseconds: UInt64
+        ///
+        /// Phantom-tagged nanosecond position. Type-distinct from `Clock.Continuous.Instant`
+        /// by construction.
+        public typealias Instant = Tagged<Self, Clock.Nanoseconds>
 
-            public init(nanoseconds: UInt64) {
-                self.nanoseconds = nanoseconds
-            }
-
-            public func advanced(by duration: Duration) -> Self {
-                let (seconds, attoseconds) = duration.components
-                let nanos = seconds * 1_000_000_000 + attoseconds / 1_000_000_000
-                return Instant(nanoseconds: nanoseconds &+ UInt64(nanos))
-            }
-
-            public func duration(to other: Self) -> Duration {
-                let diff = Int64(bitPattern: other.nanoseconds &- nanoseconds)
-                return .nanoseconds(diff)
-            }
-
-            public static func < (lhs: Self, rhs: Self) -> Bool {
-                lhs.nanoseconds < rhs.nanoseconds
-            }
-        }
-
+        /// The smallest measurable duration: one nanosecond.
         public var minimumResolution: Duration { .nanoseconds(1) }
 
         /// Creates a suspending clock instance.
         public init() {}
-
-        /// The current instant according to the suspending clock.
-        public var now: Instant {
-            Instant(nanoseconds: Kernel.Clock.Suspending.now())
-        }
-
-        public func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
-            let target = deadline.nanoseconds
-            while Kernel.Clock.Suspending.now() < target {
-                try Task.checkCancellation()
-                try await Task.sleep(for: .nanoseconds(1_000_000)) // 1ms granularity
-            }
-        }
     }
 }

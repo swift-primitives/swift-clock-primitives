@@ -9,55 +9,64 @@
 //
 // ===----------------------------------------------------------------------===//
 
-extension Clock {
-    /// A clock that triggers a failure if any of its endpoints are invoked.
-    ///
-    /// This clock is useful for proving that a particular code path does not
-    /// use time-based functionality. If any sleep is invoked on this clock,
-    /// it will trigger a precondition failure.
-    ///
-    /// ## Example
-    ///
-    /// ```swift
-    /// func testNonTimerPath() {
-    ///     let model = FeatureModel(clock: Clock.Unimplemented())
-    ///     // If this path accidentally uses the clock, the test will fail
-    ///     model.performNonTimerAction()
-    /// }
-    /// ```
-    public struct Unimplemented: _Concurrency.Clock, Sendable {
-        public struct Instant: InstantProtocol, Sendable, Hashable {
-            public let offset: Duration
+// Conforms to `_Concurrency.Clock` and witnesses the `async` `sleep`
+// requirement. Embedded Swift has no `_Concurrency` module, so this clock is
+// excluded there.
+#if !hasFeature(Embedded)
 
-            public init(offset: Duration = .zero) {
-                self.offset = offset
+    extension Clock {
+        /// A clock that triggers a failure if any of its endpoints are invoked.
+        ///
+        /// This clock is useful for proving that a particular code path does not
+        /// use time-based functionality. If any sleep is invoked on this clock,
+        /// it will trigger a precondition failure.
+        ///
+        /// ## Example
+        ///
+        /// ```swift
+        /// func testNonTimerPath() {
+        ///     let model = FeatureModel(clock: Clock.Unimplemented())
+        ///     // If this path accidentally uses the clock, the test will fail
+        ///     model.performNonTimerAction()
+        /// }
+        /// ```
+        public struct Unimplemented: _Concurrency.Clock, Sendable {
+            /// The instant type for unimplemented clock.
+            public typealias Instant = Tagged<Self, Clock.Offset>
+
+            /// The current instant (always the zero offset).
+            public var now: Instant { .init() }
+            /// The smallest measurable duration (zero).
+            public var minimumResolution: Duration { .zero }
+
+            /// Creates an unimplemented clock.
+            public init() {}
+
+            // Witnesses `_Concurrency.Clock.sleep`, declared untyped `async throws`;
+            // a typed-throws witness would not satisfy the requirement, so
+            // [API-ERR-001] is structurally inapplicable here.
+            // swiftlint:disable typed_throws_required
+            /// Sleeps until the specified deadline (triggers precondition failure).
+            ///
+            /// - Parameters:
+            ///   - deadline: The instant until which to sleep.
+            ///   - tolerance: The allowed tolerance for the sleep duration.
+            /// - Throws: Never returns; always triggers a precondition failure.
+            nonisolated(nonsending)
+                public func sleep(
+                    until deadline: Instant,
+                    tolerance: Duration? = nil
+                ) async throws
+            {
+                // swiftlint:enable typed_throws_required
+                preconditionFailure(
+                    """
+                    Unimplemented clock sleep was invoked. This indicates a code path \
+                    that was not expected to use time-based functionality.
+                    """
+                )
             }
-
-            public func advanced(by duration: Duration) -> Self {
-                .init(offset: offset + duration)
-            }
-
-            public func duration(to other: Self) -> Duration {
-                other.offset - offset
-            }
-
-            public static func < (lhs: Self, rhs: Self) -> Bool {
-                lhs.offset < rhs.offset
-            }
-        }
-
-        public var now: Instant { .init() }
-        public var minimumResolution: Duration { .zero }
-
-        public init() {}
-
-        public func sleep(until deadline: Instant, tolerance: Duration? = nil) async throws {
-            preconditionFailure(
-                """
-                Unimplemented clock sleep was invoked. This indicates a code path \
-                that was not expected to use time-based functionality.
-                """
-            )
         }
     }
-}
+
+#endif
