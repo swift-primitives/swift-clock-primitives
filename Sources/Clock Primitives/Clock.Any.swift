@@ -41,31 +41,6 @@
             /// The type-erased instant of the wrapped clock.
             public struct Instant: InstantProtocol, Sendable {
                 fileprivate let _box: Box
-
-                /// Returns the instant advanced by the given duration.
-                public func advanced(by duration: D) -> Self {
-                    Self(_box: _box.advanced(by: duration))
-                }
-
-                /// Returns the duration from this instant to another.
-                public func duration(to other: Self) -> D {
-                    _box.duration(to: other._box)
-                }
-
-                /// Orders two instants via the wrapped instant's comparison.
-                public static func < (lhs: Self, rhs: Self) -> Bool {
-                    lhs._box.compare(lhs._box, rhs._box)
-                }
-
-                /// Compares two instants via the wrapped instant's equality.
-                public static func == (lhs: Self, rhs: Self) -> Bool {
-                    lhs._box.equals(lhs._box, rhs._box)
-                }
-
-                /// Hashes the instant via the wrapped instant.
-                public func hash(into hasher: inout Hasher) {
-                    _box.hash(into: &hasher)
-                }
             }
 
             private let _now: @Sendable () -> Instant
@@ -120,6 +95,31 @@
     }
 
     extension Clock.`Any`.Instant {
+        /// Returns the instant advanced by the given duration.
+        public func advanced(by duration: D) -> Self {
+            Self(_box: _box.advanced(by: duration))
+        }
+
+        /// Returns the duration from this instant to another.
+        public func duration(to other: Self) -> D {
+            _box.duration(to: other._box)
+        }
+
+        /// Orders two instants via the wrapped instant's comparison.
+        public static func < (lhs: Self, rhs: Self) -> Bool {
+            lhs._box.compare(lhs._box, rhs._box)
+        }
+
+        /// Compares two instants via the wrapped instant's equality.
+        public static func == (lhs: Self, rhs: Self) -> Bool {
+            lhs._box.equals(lhs._box, rhs._box)
+        }
+
+        /// Hashes the instant via the wrapped instant.
+        public func hash(into hasher: inout Hasher) {
+            _box.hash(into: &hasher)
+        }
+
         // WHY: Category D — structural Sendable workaround (SP-7).
         // WHY: Empty abstract class with no stored state. @unchecked enables
         // WHY: the ConcreteBox subclass hierarchy to propagate Sendable through D.
