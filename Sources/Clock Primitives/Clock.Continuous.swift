@@ -32,18 +32,6 @@ extension Clock {
     /// - Note: `_Concurrency.Clock` conformance is added via extension in
     ///   swift-iso-9945 (POSIX) or swift-windows-primitives (Windows).
     public struct Continuous: Sendable {
-        /// The duration type for continuous-clock measurements.
-        public typealias Duration = Swift.Duration
-
-        /// The instant type for continuous clock measurements.
-        ///
-        /// Phantom-tagged nanosecond position. Type-distinct from `Clock.Suspending.Instant`
-        /// by construction — the two cannot be mixed at compile time.
-        public typealias Instant = Tagged<Self, Clock.Nanoseconds>
-
-        /// The smallest measurable duration: one nanosecond.
-        public var minimumResolution: Duration { .nanoseconds(1) }
-
         /// Creates a continuous clock instance.
         public init() {}
 
@@ -53,4 +41,18 @@ extension Clock {
         // Note: `sleep(until:tolerance:)` is provided via extension in swift-iso-9945 (POSIX)
         // or swift-windows-primitives (Windows)
     }
+}
+
+extension Clock.Continuous {
+    /// The duration type for continuous-clock measurements.
+    public typealias Duration = Swift.Duration
+
+    /// The instant type for continuous clock measurements.
+    ///
+    /// Phantom-tagged nanosecond position. Type-distinct from `Clock.Suspending.Instant`
+    /// by construction — the two cannot be mixed at compile time.
+    public typealias Instant = Tagged<Self, Clock.Nanoseconds>
+
+    /// The smallest measurable duration: one nanosecond.
+    public var minimumResolution: Duration { .nanoseconds(1) }
 }

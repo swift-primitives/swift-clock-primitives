@@ -5,7 +5,7 @@ extension Clock.Suspending {
     @Suite
     struct Test {
         @Suite struct Unit {}
-        @Suite struct EdgeCase {}
+        @Suite struct `Edge Case` {}
         @Suite struct Integration {}
         @Suite(.serialized) struct Performance {}
     }
@@ -89,7 +89,7 @@ extension Clock.Suspending.Test.Unit {
 
 // MARK: - Edge Case
 
-extension Clock.Suspending.Test.EdgeCase {
+extension Clock.Suspending.Test.`Edge Case` {
     @Test
     func `Instant advanced by zero duration`() {
         let instant = Clock.Suspending.Instant(nanoseconds: 42)

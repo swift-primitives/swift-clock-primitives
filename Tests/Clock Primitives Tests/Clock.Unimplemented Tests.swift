@@ -5,7 +5,7 @@ extension Clock.Unimplemented {
     @Suite
     struct Test {
         @Suite struct Unit {}
-        @Suite struct EdgeCase {}
+        @Suite struct `Edge Case` {}
         @Suite struct Integration {}
         @Suite(.serialized) struct Performance {}
     }
@@ -71,7 +71,7 @@ extension Clock.Unimplemented.Test.Unit {
 
 // MARK: - Edge Case
 
-extension Clock.Unimplemented.Test.EdgeCase {
+extension Clock.Unimplemented.Test.`Edge Case` {
     @Test
     func `Instant advanced by zero`() {
         let instant = Clock.Unimplemented.Instant(offset: .seconds(1))

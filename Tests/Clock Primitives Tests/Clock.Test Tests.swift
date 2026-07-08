@@ -5,7 +5,7 @@ extension Clock.Test {
     @Suite
     struct Test {
         @Suite struct Unit {}
-        @Suite struct EdgeCase {}
+        @Suite struct `Edge Case` {}
         @Suite struct Integration {}
         @Suite(.serialized) struct Performance {}
     }
@@ -101,7 +101,7 @@ extension Clock.Test.Test.Unit {
 
 // MARK: - Edge Case
 
-extension Clock.Test.Test.EdgeCase {
+extension Clock.Test.Test.`Edge Case` {
     @Test
     func `advance by zero`() {
         let clock = Clock.Test()

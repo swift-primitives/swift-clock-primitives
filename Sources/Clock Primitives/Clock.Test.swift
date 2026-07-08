@@ -57,22 +57,6 @@
         ///
         /// - Not a real-time clock; time only advances explicitly.
         public final class Test: _Concurrency.Clock, @unsafe @unchecked Sendable {
-            /// The instant type for test clock measurements.
-            public typealias Instant = Tagged<Test, Clock.Offset>
-
-            private struct State: Sendable {
-                struct Entry: Sendable {
-                    let id: UInt64
-                    let deadline: Instant
-                    let continuation: CheckedContinuation<Void, Never>
-                }
-
-                var now: Instant
-                var minimumResolution: Duration
-                var nextID: UInt64
-                var suspensions: [Entry]
-            }
-
             private let state: Mutex<State>
 
             /// Creates a test clock starting at the given instant.
@@ -86,106 +70,128 @@
                     )
                 )
             }
+        }
+    }
 
-            /// The current instant, moved only by explicit advancement.
-            public var now: Instant {
-                state.withLock { $0.now }
-            }
+    extension Clock.Test {
+        /// The instant type for test clock measurements.
+        public typealias Instant = Tagged<Clock.Test, Clock.Offset>
 
-            /// The smallest measurable duration.
-            public var minimumResolution: Duration {
-                get { state.withLock { $0.minimumResolution } }
-                set { state.withLock { $0.minimumResolution = newValue } }
-            }
+        fileprivate struct State: Sendable {
+            var now: Instant
+            var minimumResolution: Duration
+            var nextID: UInt64
+            var suspensions: [Entry]
+        }
+    }
 
-            // Witnesses `_Concurrency.Clock.sleep`, declared untyped `async throws`;
-            // a typed-throws witness would not satisfy the requirement, so
-            // [API-ERR-001] is structurally inapplicable here.
-            // swiftlint:disable typed_throws_required
-            /// Suspends until the test clock is advanced past the deadline.
-            ///
-            /// The task stays suspended until `advance(by:)`, `advance(to:)`, or
-            /// `run()` moves the clock to or past `deadline`.
-            ///
-            /// - Parameters:
-            ///   - deadline: The instant until which to sleep.
-            ///   - tolerance: The allowed tolerance for the sleep duration.
-            /// - Throws: `CancellationError` if the task is cancelled.
-            nonisolated(nonsending)
-                public func sleep(
-                    until deadline: Instant,
-                    tolerance: Duration? = nil
-                ) async throws
-            {
-                // swiftlint:enable typed_throws_required
-                try Task.checkCancellation()
+    extension Clock.Test.State {
+        struct Entry: Sendable {
+            let id: UInt64
+            let deadline: Clock.Test.Instant
+            let continuation: CheckedContinuation<Void, Never>
+        }
+    }
 
-                let shouldSuspend = state.withLock { $0.now < deadline }
-                guard shouldSuspend else { return }
+    extension Clock.Test {
+        /// The current instant, moved only by explicit advancement.
+        public var now: Instant {
+            state.withLock { $0.now }
+        }
 
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    state.withLock { st in
-                        let id = st.nextID
-                        st.nextID &+= 1
-                        st.suspensions.append(
-                            State.Entry(
-                                id: id,
-                                deadline: deadline,
-                                continuation: continuation
-                            )
+        /// The smallest measurable duration.
+        public var minimumResolution: Duration {
+            get { state.withLock { $0.minimumResolution } }
+            set { state.withLock { $0.minimumResolution = newValue } }
+        }
+
+        // Witnesses `_Concurrency.Clock.sleep`, declared untyped `async throws`;
+        // a typed-throws witness would not satisfy the requirement, so
+        // [API-ERR-001] is structurally inapplicable here.
+        // swiftlint:disable typed_throws_required
+        /// Suspends until the test clock is advanced past the deadline.
+        ///
+        /// The task stays suspended until `advance(by:)`, `advance(to:)`, or
+        /// `run()` moves the clock to or past `deadline`.
+        ///
+        /// - Parameters:
+        ///   - deadline: The instant until which to sleep.
+        ///   - tolerance: The allowed tolerance for the sleep duration.
+        /// - Throws: `CancellationError` if the task is cancelled.
+        nonisolated(nonsending)
+            public func sleep(
+                until deadline: Instant,
+                tolerance: Duration? = nil
+            ) async throws
+        {
+            // swiftlint:enable typed_throws_required
+            try Task.checkCancellation()
+
+            let shouldSuspend = state.withLock { $0.now < deadline }
+            guard shouldSuspend else { return }
+
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                state.withLock { st in
+                    let id = st.nextID
+                    st.nextID &+= 1
+                    st.suspensions.append(
+                        State.Entry(
+                            id: id,
+                            deadline: deadline,
+                            continuation: continuation
                         )
-                    }
+                    )
                 }
-
-                try Task.checkCancellation()
             }
 
-            /// Advances the test clock's internal time by the duration.
-            ///
-            /// - Parameter duration: The duration to advance by.
-            public func advance(by duration: Duration = .zero) {
-                let target = state.withLock { $0.now.advanced(by: duration) }
-                advance(to: target)
-            }
+            try Task.checkCancellation()
+        }
 
-            /// Advances the test clock's internal time to the deadline.
-            ///
-            /// - Parameter deadline: The instant to advance to.
-            public func advance(to deadline: Instant) {
-                let toResume: [CheckedContinuation<Void, Never>] = state.withLock { st in
-                    st.now = deadline
-                    st.suspensions.sort { $0.deadline < $1.deadline }
-                    var ready: [CheckedContinuation<Void, Never>] = []
-                    while let head = st.suspensions.first, head.deadline <= deadline {
-                        ready.append(head.continuation)
-                        st.suspensions.removeFirst()
-                    }
-                    return ready
-                }
-                for c in toResume { c.resume() }
-            }
+        /// Advances the test clock's internal time by the duration.
+        ///
+        /// - Parameter duration: The duration to advance by.
+        public func advance(by duration: Duration = .zero) {
+            let target = state.withLock { $0.now.advanced(by: duration) }
+            advance(to: target)
+        }
 
-            /// Runs the clock until it has no scheduled sleeps left.
-            ///
-            /// This method advances the clock through all scheduled sleep deadlines,
-            /// resuming every suspended task.
-            public func run() {
-                let toResume: [CheckedContinuation<Void, Never>] = state.withLock { st in
-                    st.suspensions.sort { $0.deadline < $1.deadline }
-                    if let last = st.suspensions.last { st.now = last.deadline }
-                    let all = st.suspensions.map(\.continuation)
-                    st.suspensions.removeAll()
-                    return all
+        /// Advances the test clock's internal time to the deadline.
+        ///
+        /// - Parameter deadline: The instant to advance to.
+        public func advance(to deadline: Instant) {
+            let toResume: [CheckedContinuation<Void, Never>] = state.withLock { st in
+                st.now = deadline
+                st.suspensions.sort { $0.deadline < $1.deadline }
+                var ready: [CheckedContinuation<Void, Never>] = []
+                while let head = st.suspensions.first, head.deadline <= deadline {
+                    ready.append(head.continuation)
+                    st.suspensions.removeFirst()
                 }
-                for c in toResume { c.resume() }
+                return ready
             }
+            for c in toResume { c.resume() }
+        }
 
-            /// Throws an error if there are active sleeps on the clock.
-            public func checkSuspension() throws(Suspension.Error) {
-                let hasActive = state.withLock { !$0.suspensions.isEmpty }
-                guard !hasActive else {
-                    throw Suspension.Error()
-                }
+        /// Runs the clock until it has no scheduled sleeps left.
+        ///
+        /// This method advances the clock through all scheduled sleep deadlines,
+        /// resuming every suspended task.
+        public func run() {
+            let toResume: [CheckedContinuation<Void, Never>] = state.withLock { st in
+                st.suspensions.sort { $0.deadline < $1.deadline }
+                if let last = st.suspensions.last { st.now = last.deadline }
+                let all = st.suspensions.map(\.continuation)
+                st.suspensions.removeAll()
+                return all
+            }
+            for c in toResume { c.resume() }
+        }
+
+        /// Throws an error if there are active sleeps on the clock.
+        public func checkSuspension() throws(Suspension.Error) {
+            let hasActive = state.withLock { !$0.suspensions.isEmpty }
+            guard !hasActive else {
+                throw Suspension.Error()
             }
         }
     }

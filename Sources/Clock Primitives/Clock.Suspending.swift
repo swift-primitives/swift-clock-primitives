@@ -32,19 +32,21 @@ extension Clock {
     /// - Note: `_Concurrency.Clock` conformance is added via extension in
     ///   swift-iso-9945 (POSIX) or swift-windows-primitives (Windows).
     public struct Suspending: Sendable {
-        /// The duration type for suspending-clock measurements.
-        public typealias Duration = Swift.Duration
-
-        /// The instant type for suspending clock measurements.
-        ///
-        /// Phantom-tagged nanosecond position. Type-distinct from `Clock.Continuous.Instant`
-        /// by construction.
-        public typealias Instant = Tagged<Self, Clock.Nanoseconds>
-
-        /// The smallest measurable duration: one nanosecond.
-        public var minimumResolution: Duration { .nanoseconds(1) }
-
         /// Creates a suspending clock instance.
         public init() {}
     }
+}
+
+extension Clock.Suspending {
+    /// The duration type for suspending-clock measurements.
+    public typealias Duration = Swift.Duration
+
+    /// The instant type for suspending clock measurements.
+    ///
+    /// Phantom-tagged nanosecond position. Type-distinct from `Clock.Continuous.Instant`
+    /// by construction.
+    public typealias Instant = Tagged<Self, Clock.Nanoseconds>
+
+    /// The smallest measurable duration: one nanosecond.
+    public var minimumResolution: Duration { .nanoseconds(1) }
 }

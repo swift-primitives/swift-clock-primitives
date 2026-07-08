@@ -46,56 +46,60 @@
         ///
         /// - Not a real-time clock; time only advances explicitly.
         public final class Immediate: _Concurrency.Clock, @unsafe @unchecked Sendable {
-            /// The instant type for immediate clock measurements.
-            public typealias Instant = Tagged<Immediate, Clock.Offset>
-
-            private struct State: Sendable {
-                var now: Instant
-                var minimumResolution: Duration
-            }
-
             private let state: Mutex<State>
 
             /// Creates an immediate clock starting at the given instant.
             public init(now: Instant = .init()) {
                 self.state = Mutex(State(now: now, minimumResolution: .zero))
             }
+        }
+    }
 
-            /// The current instant, advanced by each `sleep`.
-            public var now: Instant {
-                state.withLock { $0.now }
-            }
+    extension Clock.Immediate {
+        /// The instant type for immediate clock measurements.
+        public typealias Instant = Tagged<Clock.Immediate, Clock.Offset>
 
-            /// The smallest measurable duration.
-            public var minimumResolution: Duration {
-                get { state.withLock { $0.minimumResolution } }
-                set { state.withLock { $0.minimumResolution = newValue } }
-            }
+        private struct State: Sendable {
+            var now: Instant
+            var minimumResolution: Duration
+        }
+    }
 
-            // Witnesses `_Concurrency.Clock.sleep`, declared untyped `async throws`;
-            // a typed-throws witness would not satisfy the requirement, so
-            // [API-ERR-001] is structurally inapplicable here.
-            // swiftlint:disable typed_throws_required
-            /// Sleeps until the specified deadline (executes immediately).
-            ///
-            /// This method is `nonisolated(nonsending)` to preserve the caller's
-            /// isolation context. Because an immediate clock never truly suspends,
-            /// there is no yield point and no thread hop.
-            ///
-            /// - Parameters:
-            ///   - deadline: The instant until which to sleep.
-            ///   - tolerance: The allowed tolerance for the sleep duration.
-            /// - Throws: `CancellationError` if the task is cancelled.
-            nonisolated(nonsending)
-                public func sleep(
-                    until deadline: Instant,
-                    tolerance: Duration? = nil
-                ) async throws
-            {
-                // swiftlint:enable typed_throws_required
-                try Task.checkCancellation()
-                state.withLock { $0.now = deadline }
-            }
+    extension Clock.Immediate {
+        /// The current instant, advanced by each `sleep`.
+        public var now: Instant {
+            state.withLock { $0.now }
+        }
+
+        /// The smallest measurable duration.
+        public var minimumResolution: Duration {
+            get { state.withLock { $0.minimumResolution } }
+            set { state.withLock { $0.minimumResolution = newValue } }
+        }
+
+        // Witnesses `_Concurrency.Clock.sleep`, declared untyped `async throws`;
+        // a typed-throws witness would not satisfy the requirement, so
+        // [API-ERR-001] is structurally inapplicable here.
+        // swiftlint:disable typed_throws_required
+        /// Sleeps until the specified deadline (executes immediately).
+        ///
+        /// This method is `nonisolated(nonsending)` to preserve the caller's
+        /// isolation context. Because an immediate clock never truly suspends,
+        /// there is no yield point and no thread hop.
+        ///
+        /// - Parameters:
+        ///   - deadline: The instant until which to sleep.
+        ///   - tolerance: The allowed tolerance for the sleep duration.
+        /// - Throws: `CancellationError` if the task is cancelled.
+        nonisolated(nonsending)
+            public func sleep(
+                until deadline: Instant,
+                tolerance: Duration? = nil
+            ) async throws
+        {
+            // swiftlint:enable typed_throws_required
+            try Task.checkCancellation()
+            state.withLock { $0.now = deadline }
         }
     }
 

@@ -41,21 +41,23 @@ extension Clock.Continuous.Deadline {
         public init() {
             self._value = Atomic(UInt64.max)
         }
+    }
+}
 
-        /// Updates the deadline.
-        ///
-        /// - Parameter deadline: The new deadline. Pass `.never` to
-        ///   signal "no deadline".
-        public func store(_ deadline: Clock.Continuous.Deadline) {
-            _value.store(deadline.instant.nanoseconds, ordering: .releasing)
-        }
+extension Clock.Continuous.Deadline.Next {
+    /// Updates the deadline.
+    ///
+    /// - Parameter deadline: The new deadline. Pass `.never` to
+    ///   signal "no deadline".
+    public func store(_ deadline: Clock.Continuous.Deadline) {
+        _value.store(deadline.instant.nanoseconds, ordering: .releasing)
+    }
 
-        /// The current deadline, or `nil` if no deadline is set
-        /// (sentinel: `Deadline.never`).
-        public var value: Clock.Continuous.Deadline? {
-            let ns = _value.load(ordering: .acquiring)
-            guard ns != .max else { return nil }
-            return Clock.Continuous.Deadline(Clock.Continuous.Instant(nanoseconds: ns))
-        }
+    /// The current deadline, or `nil` if no deadline is set
+    /// (sentinel: `Deadline.never`).
+    public var value: Clock.Continuous.Deadline? {
+        let ns = _value.load(ordering: .acquiring)
+        guard ns != .max else { return nil }
+        return Clock.Continuous.Deadline(Clock.Continuous.Instant(nanoseconds: ns))
     }
 }

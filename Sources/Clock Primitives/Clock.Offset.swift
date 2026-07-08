@@ -17,32 +17,34 @@ extension Clock {
     ///
     /// Not used directly — clock instant types are `Tagged<ClockType, Clock.Offset>`.
     public struct Offset: InstantProtocol, Sendable, Hashable, Comparable {
-        /// The duration type measuring distance between offsets.
-        public typealias Duration = Swift.Duration
-
         /// Offset from zero.
         public let rawValue: Swift.Duration
 
         /// Creates an offset from a duration past zero.
         @inlinable
         public init(_ rawValue: Swift.Duration = .zero) { self.rawValue = rawValue }
+    }
+}
 
-        /// Returns the offset advanced by the given duration.
-        @inlinable
-        public func advanced(by duration: Swift.Duration) -> Self {
-            Self(rawValue + duration)
-        }
+extension Clock.Offset {
+    /// The duration type measuring distance between offsets.
+    public typealias Duration = Swift.Duration
 
-        /// Returns the duration from this offset to another.
-        @inlinable
-        public func duration(to other: Self) -> Swift.Duration {
-            other.rawValue - rawValue
-        }
+    /// Returns the offset advanced by the given duration.
+    @inlinable
+    public func advanced(by duration: Swift.Duration) -> Self {
+        Self(rawValue + duration)
+    }
 
-        /// Orders two offsets by their raw duration.
-        @inlinable
-        public static func < (lhs: Self, rhs: Self) -> Bool {
-            lhs.rawValue < rhs.rawValue
-        }
+    /// Returns the duration from this offset to another.
+    @inlinable
+    public func duration(to other: Self) -> Swift.Duration {
+        other.rawValue - rawValue
+    }
+
+    /// Orders two offsets by their raw duration.
+    @inlinable
+    public static func < (lhs: Self, rhs: Self) -> Bool {
+        lhs.rawValue < rhs.rawValue
     }
 }

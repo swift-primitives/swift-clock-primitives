@@ -43,59 +43,63 @@ extension Clock.Continuous {
         public init(_ instant: Clock.Continuous.Instant) {
             self.instant = instant
         }
+    }
+}
 
-        /// A deadline that never expires.
-        ///
-        /// Use this for operations that should wait indefinitely.
-        @inlinable
-        public static var never: Self {
-            Self(Clock.Continuous.Instant(nanoseconds: .max))
+// MARK: - Factories
+
+extension Clock.Continuous.Deadline {
+    /// A deadline that never expires.
+    ///
+    /// Use this for operations that should wait indefinitely.
+    @inlinable
+    public static var never: Self {
+        Self(Clock.Continuous.Instant(nanoseconds: .max))
+    }
+
+    /// Creates a deadline at the given reference instant.
+    ///
+    /// - Parameter instant: The instant at which the deadline expires.
+    /// - Returns: A deadline expiring at `instant`.
+    @inlinable
+    public static func now(at instant: Clock.Continuous.Instant) -> Self {
+        Self(instant)
+    }
+
+    /// Creates a deadline at the specified duration past the given instant.
+    ///
+    /// Uses saturating arithmetic: offsets that would overflow to the
+    /// far future clamp to `.never`; offsets that would underflow past
+    /// zero clamp to instant zero.
+    ///
+    /// - Parameters:
+    ///   - duration: Offset from the reference instant. Negative
+    ///     durations create a deadline in the past (already expired).
+    ///   - instant: The reference instant.
+    /// - Returns: A deadline at `instant` offset by `duration`, saturated at the bounds.
+    @inlinable
+    public static func after(
+        _ duration: Duration,
+        from instant: Clock.Continuous.Instant
+    ) -> Self {
+        let currentNs = instant.nanoseconds
+        let (seconds, attoseconds) = duration.components
+        let (secNanos, overflowMul) = seconds.multipliedReportingOverflow(by: 1_000_000_000)
+        if overflowMul {
+            return seconds > 0 ? .never : Self(Clock.Continuous.Instant(nanoseconds: 0))
         }
-
-        /// Creates a deadline at the given reference instant.
-        ///
-        /// - Parameter instant: The instant at which the deadline expires.
-        /// - Returns: A deadline expiring at `instant`.
-        @inlinable
-        public static func now(at instant: Clock.Continuous.Instant) -> Self {
-            Self(instant)
-        }
-
-        /// Creates a deadline at the specified duration past the given instant.
-        ///
-        /// Uses saturating arithmetic: offsets that would overflow to the
-        /// far future clamp to `.never`; offsets that would underflow past
-        /// zero clamp to instant zero.
-        ///
-        /// - Parameters:
-        ///   - duration: Offset from the reference instant. Negative
-        ///     durations create a deadline in the past (already expired).
-        ///   - instant: The reference instant.
-        /// - Returns: A deadline at `instant` offset by `duration`, saturated at the bounds.
-        @inlinable
-        public static func after(
-            _ duration: Duration,
-            from instant: Clock.Continuous.Instant
-        ) -> Self {
-            let currentNs = instant.nanoseconds
-            let (seconds, attoseconds) = duration.components
-            let (secNanos, overflowMul) = seconds.multipliedReportingOverflow(by: 1_000_000_000)
-            if overflowMul {
-                return seconds > 0 ? .never : Self(Clock.Continuous.Instant(nanoseconds: 0))
-            }
-            let totalNanos = secNanos &+ (attoseconds / 1_000_000_000)
-            guard totalNanos >= 0 else {
-                let absNs = UInt64(-totalNanos)
-                let subtracted = currentNs &- absNs
-                return Self(
-                    Clock.Continuous.Instant(nanoseconds: subtracted > currentNs ? 0 : subtracted)
-                )
-            }
-            let added = currentNs &+ UInt64(totalNanos)
+        let totalNanos = secNanos &+ (attoseconds / 1_000_000_000)
+        guard totalNanos >= 0 else {
+            let absNs = UInt64(-totalNanos)
+            let subtracted = currentNs &- absNs
             return Self(
-                Clock.Continuous.Instant(nanoseconds: added < currentNs ? .max : added)
+                Clock.Continuous.Instant(nanoseconds: subtracted > currentNs ? 0 : subtracted)
             )
         }
+        let added = currentNs &+ UInt64(totalNanos)
+        return Self(
+            Clock.Continuous.Instant(nanoseconds: added < currentNs ? .max : added)
+        )
     }
 }
 

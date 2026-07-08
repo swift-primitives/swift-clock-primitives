@@ -5,7 +5,7 @@ extension Clock.Immediate {
     @Suite
     struct Test {
         @Suite struct Unit {}
-        @Suite struct EdgeCase {}
+        @Suite struct `Edge Case` {}
         @Suite struct Integration {}
         @Suite(.serialized) struct Performance {}
     }
@@ -87,7 +87,7 @@ extension Clock.Immediate.Test.Unit {
 
 // MARK: - Edge Case
 
-extension Clock.Immediate.Test.EdgeCase {
+extension Clock.Immediate.Test.`Edge Case` {
     @Test
     func `sleep throws when task is cancelled`() async {
         let clock = Clock.Immediate()

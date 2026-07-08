@@ -3,17 +3,17 @@ import Testing
 
 // Clock.Any is generic — use parallel namespace pattern per [TEST-004]
 
-@Suite("Clock.Any")
-struct ClockAnyTests {
+@Suite
+struct `Clock.Any` {
     @Suite struct Unit {}
-    @Suite struct EdgeCase {}
+    @Suite struct `Edge Case` {}
     @Suite struct Integration {}
     @Suite(.serialized) struct Performance {}
 }
 
 // MARK: - Unit
 
-extension ClockAnyTests.Unit {
+extension `Clock.Any`.Unit {
     @Test
     func `wrapping Immediate clock preserves now`() {
         let immediate = Clock.Immediate()
@@ -79,7 +79,7 @@ extension ClockAnyTests.Unit {
 
 // MARK: - Edge Case
 
-extension ClockAnyTests.EdgeCase {
+extension `Clock.Any`.`Edge Case` {
     @Test
     func `type-erased instant advanced by zero`() {
         let immediate = Clock.Immediate()
@@ -107,7 +107,7 @@ extension ClockAnyTests.EdgeCase {
 
 // MARK: - Integration
 
-extension ClockAnyTests.Integration {
+extension `Clock.Any`.Integration {
     @Test
     func `wrapping Test clock: sleep and advance`() async throws {
         let test = Clock.Test()

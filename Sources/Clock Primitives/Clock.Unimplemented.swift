@@ -31,41 +31,43 @@
         /// }
         /// ```
         public struct Unimplemented: _Concurrency.Clock, Sendable {
-            /// The instant type for unimplemented clock.
-            public typealias Instant = Tagged<Self, Clock.Offset>
-
-            /// The current instant (always the zero offset).
-            public var now: Instant { .init() }
-            /// The smallest measurable duration (zero).
-            public var minimumResolution: Duration { .zero }
-
             /// Creates an unimplemented clock.
             public init() {}
+        }
+    }
 
-            // Witnesses `_Concurrency.Clock.sleep`, declared untyped `async throws`;
-            // a typed-throws witness would not satisfy the requirement, so
-            // [API-ERR-001] is structurally inapplicable here.
-            // swiftlint:disable typed_throws_required
-            /// Sleeps until the specified deadline (triggers precondition failure).
-            ///
-            /// - Parameters:
-            ///   - deadline: The instant until which to sleep.
-            ///   - tolerance: The allowed tolerance for the sleep duration.
-            /// - Throws: Never returns; always triggers a precondition failure.
-            nonisolated(nonsending)
-                public func sleep(
-                    until deadline: Instant,
-                    tolerance: Duration? = nil
-                ) async throws
-            {
-                // swiftlint:enable typed_throws_required
-                preconditionFailure(
-                    """
-                    Unimplemented clock sleep was invoked. This indicates a code path \
-                    that was not expected to use time-based functionality.
-                    """
-                )
-            }
+    extension Clock.Unimplemented {
+        /// The instant type for unimplemented clock.
+        public typealias Instant = Tagged<Self, Clock.Offset>
+
+        /// The current instant (always the zero offset).
+        public var now: Instant { .init() }
+        /// The smallest measurable duration (zero).
+        public var minimumResolution: Duration { .zero }
+
+        // Witnesses `_Concurrency.Clock.sleep`, declared untyped `async throws`;
+        // a typed-throws witness would not satisfy the requirement, so
+        // [API-ERR-001] is structurally inapplicable here.
+        // swiftlint:disable typed_throws_required
+        /// Sleeps until the specified deadline (triggers precondition failure).
+        ///
+        /// - Parameters:
+        ///   - deadline: The instant until which to sleep.
+        ///   - tolerance: The allowed tolerance for the sleep duration.
+        /// - Throws: Never returns; always triggers a precondition failure.
+        nonisolated(nonsending)
+            public func sleep(
+                until deadline: Instant,
+                tolerance: Duration? = nil
+            ) async throws
+        {
+            // swiftlint:enable typed_throws_required
+            preconditionFailure(
+                """
+                Unimplemented clock sleep was invoked. This indicates a code path \
+                that was not expected to use time-based functionality.
+                """
+            )
         }
     }
 
