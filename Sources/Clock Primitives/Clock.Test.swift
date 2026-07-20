@@ -142,23 +142,57 @@
             // other `state.withLock` critical section (including
             // `advance`/`run`), so no interleaving can produce a stale,
             // unreachable entry.
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                let resumeImmediately = state.withLock { st -> Bool in
-                    guard st.now < deadline else { return true }
-                    let id = st.nextID
-                    st.nextID &+= 1
-                    st.suspensions.append(
-                        State.Entry(
-                            id: id,
-                            deadline: deadline,
-                            continuation: continuation
+            //
+            // F-002: cancelling the sleeping task must wake it promptly, not
+            // only when a LATER `advance`/`run` happens to sweep past this
+            // entry's deadline (or never, if none ever comes). `id` is
+            // reserved up front as a plain immutable value, known to both the
+            // registration closure below and the cancellation handler without
+            // any extra synchronization: `withTaskCancellationHandler`'s
+            // `onCancel` closure removes the entry (if still present) under
+            // the SAME `state` lock and resumes it itself. Racing
+            // `onCancel` against `advance`/`run` resuming the same entry is
+            // safe because both paths go through `firstIndex(where:)` +
+            // `remove(at:)` under that one lock: whichever runs first
+            // consumes the entry, the other finds it already gone and is a
+            // no-op, so the continuation is resumed exactly once. The
+            // `Task.isCancelled` check inside the atomic decision closes the
+            // remaining gap where cancellation lands after this call reserves
+            // `id` but before it decides whether to register: in that case it
+            // resumes immediately instead of registering an entry `onCancel`
+            // will never see (registered too late to be found, since
+            // `onCancel` may already have run and found nothing).
+            let id = state.withLock { st -> UInt64 in
+                let id = st.nextID
+                st.nextID &+= 1
+                return id
+            }
+
+            await withTaskCancellationHandler {
+                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                    let resumeImmediately = state.withLock { st -> Bool in
+                        guard !Task.isCancelled, st.now < deadline else { return true }
+                        st.suspensions.append(
+                            State.Entry(
+                                id: id,
+                                deadline: deadline,
+                                continuation: continuation
+                            )
                         )
-                    )
-                    return false
+                        return false
+                    }
+                    if resumeImmediately {
+                        continuation.resume()
+                    }
                 }
-                if resumeImmediately {
-                    continuation.resume()
+            } onCancel: {
+                let toResume: CheckedContinuation<Void, Never>? = state.withLock { st in
+                    guard let index = st.suspensions.firstIndex(where: { $0.id == id }) else {
+                        return nil
+                    }
+                    return st.suspensions.remove(at: index).continuation
                 }
+                toResume?.resume()
             }
 
             try Task.checkCancellation()

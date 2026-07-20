@@ -315,6 +315,68 @@ extension Clock.Test.Test.Integration {
         #expect(order.withLock { $0 } == [1, 2, 3])
     }
 
+    // MARK: - F-002 regression: cancellation must be observed without an
+    // external advance()/run()
+    //
+    // Pre-fix, `sleep(until:)` only ever removed/resumed a suspended
+    // continuation from within `advance(to:)`/`run()`; a cancelled task's
+    // continuation stayed parked in `suspensions` until some LATER external
+    // advance/run happened to sweep past its deadline (or never, if none
+    // ever came). This regression asserts the task resolves on its own,
+    // promptly, from `task.cancel()` alone — no `clock.advance`/`clock.run`
+    // call anywhere in this test.
+    //
+    // The wait is bounded by a REAL wall-clock race (independent of
+    // `Clock.Test`'s own virtual time), and `sleeper` is polled rather than
+    // structurally awaited: a `withTaskGroup` that races `await
+    // sleeper.result` against a timeout task would still hang at its own
+    // implicit teardown, because structured concurrency waits for every
+    // child to finish even after `cancelAll()` — and `Task.result` does not
+    // itself observe ambient cancellation of the child that's awaiting it.
+    // Polling a plain `Locked` box sidesteps that trap: this test function
+    // returns on schedule regardless of whether `sleeper` ever completes.
+    @Test
+    func `cancellation resumes sleep promptly without any external advance or run`() async throws {
+        let clock = Clock.Test()
+
+        let sleeper = Task.immediate {
+            try await clock.sleep(until: .init(offset: .seconds(100)))
+        }
+        sleeper.cancel()
+
+        let box = Locked<Bool?>(initialState: nil)
+        Task.detached {
+            do {
+                try await sleeper.value
+                box.withLock { $0 = false }
+            } catch is CancellationError {
+                box.withLock { $0 = true }
+            } catch {
+                box.withLock { $0 = false }
+            }
+        }
+
+        let wallClock = ContinuousClock()
+        let start = wallClock.now
+        while wallClock.now - start < .seconds(2) {
+            if box.withLock({ $0 }) != nil { break }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+
+        if let sawCancellation = box.withLock({ $0 }) {
+            #expect(sawCancellation)
+        } else {
+            Issue.record(
+                """
+                sleep(until:) was not resumed within 2s of task.cancel() \
+                without any external advance()/run() call — cancellation is \
+                only being observed after a subsequent clock advance \
+                (F-002 regression).
+                """
+            )
+        }
+    }
+
     // MARK: - F-001 regression: deadline check and continuation registration
     // must be atomic
     //
