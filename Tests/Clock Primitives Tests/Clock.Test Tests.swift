@@ -315,6 +315,96 @@ extension Clock.Test.Test.Integration {
         #expect(order.withLock { $0 } == [1, 2, 3])
     }
 
+    // MARK: - F-001 regression: deadline check and continuation registration
+    // must be atomic
+    //
+    // Pre-fix, `sleep(until:)` checked `now < deadline` and registered the
+    // continuation as two SEPARATE `state.withLock` acquisitions. A
+    // concurrent `advance(to:)` landing in the gap between them sees no
+    // registered entry yet, drains nothing, and the registration that
+    // follows appends an entry whose deadline has already elapsed — nothing
+    // but a LATER advance/run ever discovers it (in the worst case, nothing
+    // ever does, and the sleeper hangs forever). This hammers `advance(to:)`
+    // from several concurrently-running, genuinely unstructured tasks across
+    // many rounds while sleepers race to register, to make real multi-core
+    // interleaving land in that window.
+    //
+    // Sleepers and hammers are `Task.detached`, tracked via a `Locked`
+    // counter and polled with a bounded real-time loop — not a
+    // `withTaskGroup` — for the same reason as the F-002 test above: a
+    // stranded (never-resumed) sleeper would otherwise hang the group's
+    // implicit teardown forever, defeating the whole point of bounding this
+    // stress test.
+    @Test
+    func `concurrent advance hammering never strands a sleeper`() async throws {
+        // All rounds are launched CONCURRENTLY (not one after another) so the
+        // machine has as many genuinely-simultaneous hammer/sleeper pairs in
+        // flight as possible at any given instant — maximizing the chance
+        // that real multi-core preemption lands inside the pre-fix gap.
+        let rounds = 300
+        let sleepersPerRound = 8
+        let hammerTasksPerRound = 4
+        let overallBudget = Duration.milliseconds(500)
+
+        struct Round {
+            let clock: Clock.Test
+            let deadline: Clock.Test.Instant
+            let completed: Locked<Int>
+            let stopHammering: Locked<Bool>
+        }
+
+        let allRounds = (0..<rounds).map { _ in
+            Round(
+                clock: Clock.Test(),
+                deadline: Clock.Test.Instant(offset: .milliseconds(1)),
+                completed: Locked<Int>(initialState: 0),
+                stopHammering: Locked<Bool>(initialState: false)
+            )
+        }
+
+        for round in allRounds {
+            for _ in 0..<hammerTasksPerRound {
+                Task.detached {
+                    var iteration = 0
+                    while !round.stopHammering.withLock({ $0 }) {
+                        round.clock.advance(to: round.deadline)
+                        iteration += 1
+                        if iteration % 64 == 0 { await Task.yield() }
+                    }
+                }
+            }
+            for _ in 0..<sleepersPerRound {
+                Task.detached {
+                    try? await round.clock.sleep(until: round.deadline)
+                    round.completed.withLock { $0 += 1 }
+                }
+            }
+        }
+
+        let wallClock = ContinuousClock()
+        let start = wallClock.now
+        var allWoke = false
+        while wallClock.now - start < overallBudget {
+            if allRounds.allSatisfy({ $0.completed.withLock { $0 } == sleepersPerRound }) {
+                allWoke = true
+                break
+            }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+        for round in allRounds {
+            round.stopHammering.withLock { $0 = true }
+        }
+
+        if !allWoke {
+            let strandedRounds = allRounds.enumerated().filter { _, round in
+                round.completed.withLock { $0 } != sleepersPerRound
+            }
+            Issue.record(
+                "\(strandedRounds.count)/\(rounds) rounds left at least one sleeper stranded within \(overallBudget) of racing advance(to:) calls — lost wakeup (F-001 regression)"
+            )
+        }
+    }
+
     @Test @MainActor
     func `cancelled task does not disrupt ordering of remaining sleeps`() async throws {
         let clock = Clock.Test()

@@ -127,11 +127,24 @@
             // swiftlint:enable typed_throws_required
             try Task.checkCancellation()
 
-            let shouldSuspend = state.withLock { $0.now < deadline }
-            guard shouldSuspend else { return }
-
+            // F-001: the deadline re-check and the continuation append MUST
+            // happen inside the SAME `withLock` closure. Splitting them into
+            // two separate lock acquisitions (as a prior revision did) opens
+            // a window in which a concurrent `advance(to:)` can run between
+            // the check and the append: it observes nothing registered yet,
+            // drains nothing, and the append that follows then stores an
+            // entry whose deadline has already elapsed — nothing but a LATER
+            // advance/run would ever discover it, and in the worst case
+            // nothing ever does. Re-checking `now < deadline` under the same
+            // lock that performs the append closes that window: either this
+            // call observes the deadline has already passed and resumes
+            // immediately, or it registers atomically with respect to every
+            // other `state.withLock` critical section (including
+            // `advance`/`run`), so no interleaving can produce a stale,
+            // unreachable entry.
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                state.withLock { st in
+                let resumeImmediately = state.withLock { st -> Bool in
+                    guard st.now < deadline else { return true }
                     let id = st.nextID
                     st.nextID &+= 1
                     st.suspensions.append(
@@ -141,6 +154,10 @@
                             continuation: continuation
                         )
                     )
+                    return false
+                }
+                if resumeImmediately {
+                    continuation.resume()
                 }
             }
 
