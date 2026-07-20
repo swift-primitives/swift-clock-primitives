@@ -237,6 +237,33 @@ extension Clock.Test.Test.Integration {
         #expect(clock.now.offset == .seconds(5))
     }
 
+    // MARK: - advance(by:) single-lock fold regression
+    //
+    // Pre-fix, `advance(by:)` read `now` under one `state.withLock` and then
+    // called `advance(to:)`, which re-locked. Under concurrent `advance(by:)`
+    // callers, two racers could compute their target from the same stale
+    // `now`, collapsing what should be two additive advances into one (or
+    // applying a smaller target after a larger one had already moved `now`
+    // forward). Folding the read and the advance into a single critical
+    // section makes every `advance(by:)` call additive regardless of
+    // interleaving: N concurrent callers each advancing by the same duration
+    // must sum to exactly N * duration, never less.
+    @Test
+    func `concurrent advance(by:) calls are additive under a single lock`() async {
+        let clock = Clock.Test()
+        let iterations = 200
+
+        await withTaskGroup(of: Void.self) { group in
+            for _ in 0..<iterations {
+                group.addTask {
+                    clock.advance(by: .milliseconds(1))
+                }
+            }
+        }
+
+        #expect(clock.now.offset == .milliseconds(Int64(iterations)))
+    }
+
     // MARK: - Ordering regression tests
     //
     // These verify the test clock resumes sleeps in DEADLINE order. They step the

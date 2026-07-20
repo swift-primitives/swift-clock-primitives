@@ -202,8 +202,29 @@
         ///
         /// - Parameter duration: The duration to advance by.
         public func advance(by duration: Duration = .zero) {
-            let target = state.withLock { $0.now.advanced(by: duration) }
-            advance(to: target)
+            // Fold the target-time read and the advance into a single
+            // `state.withLock` critical section (mirroring F-001's fold in
+            // `sleep(until:)`). The prior two-phase form read `now` under one
+            // lock and then re-locked inside `advance(to:)`: under concurrent
+            // `advance(by:)` callers this let two racers compute a target
+            // from the same stale `now`, or apply a smaller target after a
+            // larger one had already moved `now` forward, silently
+            // collapsing or reordering advances. Computing `target` from
+            // `st.now` inside the same critical section that mutates `now`
+            // and drains `suspensions` closes that window; resumption still
+            // happens outside the lock, matching `advance(to:)`/`run()`.
+            let toResume: [CheckedContinuation<Void, Never>] = state.withLock { st in
+                let deadline = st.now.advanced(by: duration)
+                st.now = deadline
+                st.suspensions.sort { $0.deadline < $1.deadline }
+                var ready: [CheckedContinuation<Void, Never>] = []
+                while let head = st.suspensions.first, head.deadline <= deadline {
+                    ready.append(head.continuation)
+                    st.suspensions.removeFirst()
+                }
+                return ready
+            }
+            for c in toResume { c.resume() }
         }
 
         /// Advances the test clock's internal time to the deadline.
