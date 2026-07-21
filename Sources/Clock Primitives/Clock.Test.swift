@@ -168,32 +168,41 @@
                 return id
             }
 
-            await withTaskCancellationHandler {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    let resumeImmediately = state.withLock { st -> Bool in
-                        guard !Task.isCancelled, st.now < deadline else { return true }
-                        st.suspensions.append(
-                            State.Entry(
-                                id: id,
-                                deadline: deadline,
-                                continuation: continuation
+            // `isolation:` is passed explicitly (not left to its 6.3 `#isolation`
+            // default) because the 6.4 SDK adds a typed-throws
+            // `withTaskCancellationHandler(operation:onCancel:)` overload that makes
+            // the defaulted call ambiguous; the explicit argument pins the original
+            // overload with identical semantics on both toolchains.
+            await withTaskCancellationHandler(
+                operation: {
+                    await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                        let resumeImmediately = state.withLock { st -> Bool in
+                            guard !Task.isCancelled, st.now < deadline else { return true }
+                            st.suspensions.append(
+                                State.Entry(
+                                    id: id,
+                                    deadline: deadline,
+                                    continuation: continuation
+                                )
                             )
-                        )
-                        return false
+                            return false
+                        }
+                        if resumeImmediately {
+                            continuation.resume()
+                        }
                     }
-                    if resumeImmediately {
-                        continuation.resume()
+                },
+                onCancel: {
+                    let toResume: CheckedContinuation<Void, Never>? = state.withLock { st in
+                        guard let index = st.suspensions.firstIndex(where: { $0.id == id }) else {
+                            return nil
+                        }
+                        return st.suspensions.remove(at: index).continuation
                     }
-                }
-            } onCancel: {
-                let toResume: CheckedContinuation<Void, Never>? = state.withLock { st in
-                    guard let index = st.suspensions.firstIndex(where: { $0.id == id }) else {
-                        return nil
-                    }
-                    return st.suspensions.remove(at: index).continuation
-                }
-                toResume?.resume()
-            }
+                    toResume?.resume()
+                },
+                isolation: #isolation
+            )
 
             try Task.checkCancellation()
         }
